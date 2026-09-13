@@ -29,3 +29,14 @@ body {
 main {
   padding: 24px;
 }
+
+
+.site-header nav {
+  flex: 1;
+}
+
+.user-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

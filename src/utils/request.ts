@@ -1,26 +1,33 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-// 整个项目共享这一个 axios 实例
 const request = axios.create({
-  baseURL: 'https://v1.hitokoto.cn',
-  timeout: 5000,
+  baseURL: import.meta.env.VITE_API_BASE_URL,
+  timeout: 10000,
 })
 
-// 请求拦截器：请求发出去之前统一处理（以后自动带 token 就加在这里）
+// 请求拦截器：有 token 就自动带上（后端约定放在 token 请求头）
 request.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.set('token', token)
+  }
   return config
 })
 
-// 响应拦截器：拿到结果后统一处理
+// 响应拦截器：HTTP 错误 + 业务错误双层判断
 request.interceptors.response.use(
   (response) => {
-    // 直接拆包返回数据本体，页面里就不用每次都写 .data
-    return response.data
+    const body = response.data
+    // 后端约定：HTTP 恒 200，业务成败看 body.code
+    if (body.code !== 200) {
+      ElMessage.error(body.message || '请求失败')
+      return Promise.reject(new Error(body.message))
+    }
+    return body
   },
   (error) => {
-    // 网络错误、404、500 统一在这里兜住并提示
-    ElMessage.error('请求出错了，请稍后再试')
+    ElMessage.error('网络异常，请稍后再试')
     return Promise.reject(error)
   },
 )
