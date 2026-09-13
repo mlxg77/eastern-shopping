@@ -15,9 +15,12 @@
 | 5 | 接入真实后端与登录联调 | 2026-09-13 | ✅ 完成 |
 | 6 | 路由守卫与退出登录 | 2026-09-13 | ✅ 完成 |
 | 7 | 后台布局与动态菜单骨架 | 2026-09-13 | ✅ 完成 |
-| 8 | （待开始） | — | ⬜ |
+| 8 | 品牌管理（第一个 CRUD 业务页） | 2026-09-13 | ✅ 完成 |
+| 9 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
-| └ A.10 | 具名插槽 #title（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
+| └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
+| └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
+| └ A.12 | 模板字符串与接口路径拼接（源于品牌接口） | 2026-09-13 | ✅ 完成 |
 
 ---
 
@@ -344,6 +347,49 @@ app.mount('#app')
 
 ---
 
+# Part 8 · 品牌管理（第一个 CRUD 业务页）
+
+## 目标
+
+1. 经典 CRUD 三板斧：**分页列表 + 新增/编辑对话框 + 删除二次确认**——建立的"模子"后续所有业务页复用。
+2. 跑通"增删改查 → 刷新列表"的单一数据流。
+3. 学习 el-table 作用域插槽、el-pagination 双向绑定、el-form 校验、el-popconfirm 二次确认。
+
+## 接口侦察（动手前先探明契约）
+
+沿用 Part 5 规矩：先写探针脚本实测，再写代码。四接口全确认：
+
+| 接口 | 方法/路径 | 请求体 | 返回 |
+|---|---|---|---|
+| 分页列表 | `GET /admin/product/baseTrademark/{page}/{limit}` | — | `data: { records, total, size, current, pages }` |
+| 新增 | `POST /admin/product/baseTrademark/save` | `{ tmName, logoUrl }` | `data: null` |
+| 修改 | `PUT /admin/product/baseTrademark/update` | `{ id, tmName, logoUrl }` | `data: null` |
+| 删除 | `DELETE /admin/product/baseTrademark/remove/{id}` | — | `data: null` |
+
+记录字段：`id` / `tmName` / `logoUrl` / `createTime` / `updateTime`。**关键发现**：`logoUrl` 是相对路径（如 `/api/static/img/sph/...`），前端显示时需拼 baseURL——这是“绝对地址”列显示破损图的根源。
+
+## 操作过程
+
+1. 新建 `src/api/trademark.ts`：`Trademark`（id 可选——新增时没有）/ `TrademarkListData` 接口 + 三个请求函数；新增/修改共用 `reqAddOrUpdateTrademark`（看有没有 `id` 分流，教程同款写法）。
+2. 新建 `src/views/product/TrademarkView.vue`（首个业务页面组件）：列表区（el-table + el-pagination + loading）、对话框区（el-form + rules 校验）、删除区（el-popconfirm）；LOGO 列用 `toFullUrl` 拼接 + `el-image` 预览。
+3. `src/router/index.ts` 改一行：trademark 路由指向新组件，其余 children 不动。
+
+## 原理与决策
+
+- **CRUD 单一数据流**：增/删/改成功后都调同一个 `loadList()`——列表永远从服务器重新拉，不信任本地拼接，数据永远不会“漂”。
+- **el-pagination 双向绑定**：`v-model:current-page="page"` + `v-model:page-size="limit"` 两个双向绑定；切页/切条数触发 `@current-change` / `@size-change` 事件回调里重新加载。
+- **el-table 作用域插槽**：`<template #default="{ row }">` 里拿当前行数据，每行一套按钮；`prop` 列直接读字段，插槽列自己控制渲染。
+- **el-popconfirm 的 `#reference` 插槽**：不写它就不知道点哪儿弹确认框——这是和普通 prop 最大的区别。
+- **对话框复用**：同一个 form + dialog，有 `id` 是编辑模式（标题/提示语区分），没有是新增；`onEdit` 逐字段复制到 form（不直接传 row 引用，避免表单编辑直接污染列表）。
+- **删除的“回退页”细节**：当前页只剩一条且不在第一页时，删除后 `page-1` 再拉，否则会请求一个空页。
+- **表单校验的坑位对齐**：`el-form-item` 的 `prop` 必须跟 `rules` 的 key 完全一致，校验才会挂到对应输入框上。
+
+## 踩坑记录
+
+本 Part 一次通过，未踩坑。遇到的两个认知点已另记：模板字符串拼接口路径 → 附录 A.12；`#reference` 插槽语义 → 任务书/代码注释。
+
+---
+
 # 附录 · Vue 概念补充（持续累积）
 
 > 本部分不占用 Part 序号，作为**持续累积的 Vue 概念笔记始终置于整篇最后**：开发中遇到新概念就往这里追加一小节。日后新增的开发阶段 Part 都插在本附录**之前**，确保它永远是末章。
@@ -359,7 +405,9 @@ app.mount('#app')
 - [A.7 组件外使用 Pinia 的时机](#a7-组件外使用-pinia-的时机)
 - [A.8 模块引入路径：裸模块名、别名与相对路径](#a8-模块引入路径裸模块名别名与相对路径)
 - [A.9 Element Plus 菜单的 index 与 Vue 的 key 之辨](#a9-element-plus-菜单的-index-与-vue-的-key-之辨)
-- [A.10 具名插槽 #title](#a10-具名插槽-title)
+- [A.10 具名插槽与作用域插槽](#a10-具名插槽与作用域插槽)
+- [A.11 动态组件 `<component :is>`](#a11-动态组件-component-is)
+- [A.12 模板字符串与接口路径拼接](#a12-模板字符串与接口路径拼接)
 
 ## A.1 生命周期 onMounted
 
@@ -851,7 +899,7 @@ Did you forget to install pinia?
 
 ### 概念
 
-`import` 后面跟的那串字符串叫**模块请求路径**，它的开头几个字符就决定了 Vite/TS 去哪里找。`src/layout/Index.vue` 开头那几行正好集齐三种：
+`import` 后面跟的那串字符串叫**模块请求路径**，它的开头几个字符就决定了 Vite/TS 去哪里找。`src/layout/AdminLayout.vue` 开头那几行正好集齐三种：
 
 ```ts
 import { ref } from 'vue'                 // 裸模块名
@@ -867,7 +915,7 @@ import { menuConfig } from './menu'       // 相对路径
 
 ### `./` 到底是什么
 
-`./` = **当前文件所在的目录**。参照物是“写这行 import 的文件自己在哪”，**不是**项目根目录、也不是运行目录。`Index.vue` 在 `src/layout/` 下，所以 `./menu` 就是隔壁的 `src/layout/menu.ts`。
+`./` = **当前文件所在的目录**。参照物是“写这行 import 的文件自己在哪”，**不是**项目根目录、也不是运行目录。`AdminLayout.vue` 在 `src/layout/` 下，所以 `./menu` 就是隔壁的 `src/layout/menu.ts`。
 
 ```
 ./menu          同级目录
@@ -897,7 +945,7 @@ import HomeView from '../views/HomeView'      // ❌ 找不到
 
 ### 选用原则
 
-- **用 `./` 相对路径**：引用**紧密关联、同目录**的文件。如 `menu.ts` 是专给 layout 用的配置，跟 `Index.vue` 是一体，用 `./` 能表达“它俩是一伙的”，整个 `layout/` 文件夹搬走也不断链。
+- **用 `./` 相对路径**：引用**紧密关联、同目录**的文件。如 `menu.ts` 是专给 layout 用的配置，跟 `AdminLayout.vue` 是一体，用 `./` 能表达“它俩是一伙的”，整个 `layout/` 文件夹搬走也不断链。
 - **用 `@/` 别名**：引用**跨模块的公共资源**（stores / api / utils / components）。不用数 `../../`，文件换位置也不用改路径。
 
 ### 易错点
@@ -952,7 +1000,7 @@ import HomeView from '../views/HomeView'      // ❌ 找不到
 3. **高亮对不上**：`el-menu` 的 `default-active` 传的值必须能在某个 `el-menu-item` 的 `index` 里找到；本项目传 `route.path`，所以菜单 `path` 必须与路由表完全一致。
 4. **给 `el-sub-menu` 传了真路径**：不报错但无意义，还可能跟子项的 `index` 撞车；分组节点只需一个不重复的标识。
 
-## A.10 具名插槽 #title
+## A.10 具名插槽与作用域插槽
 
 ### 概念
 
@@ -980,7 +1028,7 @@ import HomeView from '../views/HomeView'      // ❌ 找不到
 
 ### 本项目实例一：el-sub-menu 的两个坑位
 
-`src/layout/Index.vue`：
+`src/layout/AdminLayout.vue`：
 
 ```vue
 <el-sub-menu v-if="item.children" :index="item.title">
@@ -1018,16 +1066,156 @@ import HomeView from '../views/HomeView'      // ❌ 找不到
 
 这就是点折叠按钮后“只剩一列图标、悬停还能看到名字”的实现方式；文字直接裸写在外面的话，折叠时它会被挤压变形。
 
+### 实例三：el-card 的 #header——插槽与同名 prop 的取舍
+
+`src/views/product/TrademarkView.vue`：
+
+```vue
+<el-card shadow="never">
+  <template #header>
+    <div class="card-header">
+      <span>品牌列表</span>
+      <el-button type="primary" @click="onAdd">添加品牌</el-button>
+    </div>
+  </template>
+
+  <el-table ... />        <!-- 没写 #xxx → 自动落入默认插槽（卡片正文） -->
+  <el-pagination ... />
+</el-card>
+```
+
+```
+┌─────────────────────────────┐
+│ 品牌列表        [添加品牌]  │ ← #header 插槽（带下边框、独立内边距）
+├─────────────────────────────┤
+│  表格 + 分页                 │ ← 默认插槽（body 区）
+└─────────────────────────────┘
+```
+
+`el-card` 的头部其实**两种写法都支持**，这里必须用插槽：
+
+```vue
+<el-card header="品牌列表" />        <!-- prop：只能塞纯文本 -->
+<el-card><template #header>...</template></el-card>   <!-- 插槽：能塞任意结构 -->
+```
+
+因为头部不只有文字，还有个“添加品牌”按钮——**prop 传不了组件，插槽才行**（即本节开头“props 传数据、插槽传结构”的实战场景）。配套的 `.card-header` 用 `display: flex` + `justify-content: space-between` 实现“左标题右按钮”，是后台页头部的标准套路。
+
+### 作用域插槽：数据从子组件反流回父模板
+
+前面三个例子都是**父→子 单向填结构**。而表格列多了一个 `="{ row }"`：
+
+```vue
+<template #default="{ row }">
+<!--  ↑#default      ↑="{ row }" 接子组件反传上来的数据 -->
+```
+
+拆成两半看：`#default` = `v-slot:default`，填“默认插槽”这个坑位；`="{ row }"` 是接住子组件递出来的当前行数据。这种带参数的插槽叫**作用域插槽**（scoped slot）。
+
+#### 为什么表格列非要它
+
+```vue
+<el-table-column prop="tmName" label="品牌名称" />   <!-- 有 prop：组件自己取值渲文本 -->
+
+<el-table-column label="LOGO">                       <!-- 无 prop：显示什么由你定 -->
+  <template #default="{ row }">
+    <el-image :src="toFullUrl(row.logoUrl)" />
+  </template>
+</el-table-column>
+```
+
+- `prop="tmName"` 是“**告诉组件取哪个字段**”，组件直接把文本渲出来，够用就别写模板；
+- LOGO 列要渲染 `<el-image>`、操作列要渲染两个按钮——这些**组件不可能预知**，只能把数据交给你、你自己写模板。
+
+关键在于：**循环是 `el-table` 内部做的**。你的模板写在外面，子组件不把当前行递出来，你根本无法知道“现在渲染的是哪一条”。
+
+#### 数据是怎么绕一圈回来的
+
+```
+你：:data="tableData"                      ← 整个数组交给 el-table
+        ↓
+el-table 内部 v-for 遍历每一行
+        ↓
+每渲染一行，调用你的 #default 插槽，塞给你 { row, column, $index }
+        ↓
+你的模板：toFullUrl(row.logoUrl)       ← 拿到单行数据，渲染这一格
+```
+
+所以 `row` 这个名字**不是你起的**，是 Element Plus 定的（文档 Slots 表里写着）。
+
+#### 子组件内部是怎么反传的
+
+就是在 `<slot>` 上像传 props 一样绑值：
+
+```vue
+<!-- 子组件（类似 el-table 的极简结构） -->
+<tr v-for="(item, i) in data" :key="item.id">
+  <td>
+    <slot :row="item" :$index="i">   <!-- 把当前行绑到插槽上递出去 -->
+      {{ item[prop] }}               <!-- 插槽内容为空时的默认内容：直接取 prop 字段 -->
+    </slot>
+  </td>
+</tr>
+```
+
+两个附带结论：① 插槽里能拿到什么参数，完全由组件作者决定；② `<slot>` 标签之间可以写**默认内容**，使用方不填时就用它——这就是为何只写 `prop="tmName"` 不写模板也能正常显示文本。
+
+#### 能解构出来的三个字段
+
+```vue
+<template #default="{ row, column, $index }">
+  <span>{{ $index + 1 }}</span>      <!-- 序号列常用：数组下标，从 0 开始 -->
+  <span>{{ row.tmName }}</span>      <!-- 当前行的完整数据对象 -->
+</template>
+```
+
+不想解构也可以整个接下来，效果一样：
+
+```vue
+<template #default="scope">
+  <el-image :src="toFullUrl(scope.row.logoUrl)" />
+</template>
+```
+
+`{ row }` 只是 **ES6 解构语法**，把 `scope.row` 直接取出来少写一层，现在更常见。
+
+### 实例四：el-popconfirm 的 #reference——插槽也能当“锚点”
+
+```vue
+<el-popconfirm title="确定删除该品牌吗？" @confirm="onDelete(row.id)">
+  <template #reference>
+    <el-button size="small" type="danger">删除</el-button>
+  </template>
+</el-popconfirm>
+```
+
+这个 `#reference` 特别一点：它不是“往里填内容”，而是“**告诉组件拿哪个元素当触发锚点**”——气泡框得知道贴着谁弹、点谁才弹。删除按钮写在插槽外面就不会触发确认框，点下去直接执行删除。`el-tooltip`、`el-popover`、`el-dropdown` 都是同一套路。
+
+### 本项目插槽用法一览
+
+到 Part 8 为止，插槽已在五处出现，正好覆盖三种类型：
+
+| 位置 | 写法 | 类型 | 作用 |
+|---|---|---|---|
+| `el-sub-menu` | `#title` | 具名 | 分组标题行（永远可见、可点展开） |
+| `el-menu-item` | `#title` | 具名 | 折叠时隐藏文字、悬停变 tooltip |
+| `el-card` | `#header` | 具名 | 卡片头部（标题 + 主操作按钮） |
+| `el-table-column` | `#default="{ row }"` | **作用域** | 自定义单元格，`row` 为当前行数据 |
+| `el-popconfirm` | `#reference` | 具名（锚点） | 指定触发气泡确认的元素 |
+| `el-dialog` | `#footer` | 具名 | 弹窗底部按钮区 |
+
 ### 写法速查
 
 | 写法 | 全写 | 含义 |
 |---|---|---|
 | `<template #title>` | `v-slot:title` | 填名为 title 的具名插槽 |
 | 直接写内容 | — | 落入默认插槽（等价 `#default`） |
-| `#default="{ row }"` | `v-slot:default="{ row }"` | **作用域插槽**：接子组件反传上来的数据（写表格列常用） |
+| `#default="{ row }"` | `v-slot:default="{ row }"` | 作用域插槽 + 解构取 `row` |
+| `#default="scope"` | `v-slot:default="scope"` | 同上，不解构，用 `scope.row` |
 | `#[name]` | `v-slot:[name]` | 动态插槽名，插槽名取自变量 |
+| 子组件 `<slot name="x" :row="item" />` | — | 声明坑位并反传数据 |
 
-常见插槽名：`title` / `header` / `footer` / `default` / `append` / `empty`。
+常见插槽名：`title` / `header` / `footer` / `default` / `reference` / `append` / `empty`。不确定时查组件文档页**最底部的 Slots 表**，里面列了每个坑位名及它会反传哪些参数。
 
 ### 易错点
 
@@ -1035,8 +1223,183 @@ import HomeView from '../views/HomeView'      // ❌ 找不到
 2. **`#title` 写到普通元素上**：`v-slot` 只能用在 `<template>` 或组件标签上，写成 `<div #title>` 会报错。
 3. **插槽名大小写不会自动转换**：Vue 3 的插槽名是原样匹配，`#itemTitle` 和 `#item-title` 是两个不同的坑（不同于 props/事件的 kebab ↔ camel 自动对应，见 A.6）；名字拼错就是静默不渲染。
 4. **以为 `#title` 只能放文字**：它是一整块区域，图标、标记、`el-tag` 都能塞——本项目就是图标 + 文字两个元素。
-5. **分不清 `#title` 插槽与 `title` prop**：有些组件（如 `el-dialog`）两者都支持——prop 只能传纯文本，插槽能放任意结构；同时写时插槽优先。
-6. **作用域插槽漏写参数**：`#default` 不接 `="{ row }"` 时拿不到行数据，模板里用 `row` 会报未定义。
+5. **分不清插槽与同名 prop**：`el-card` 的 `header`、`el-dialog` 的 `title` 两者都支持——prop 只能传纯文本，插槽能放任意结构；同时写时插槽优先。
+6. **作用域插槽漏写参数**：`#default` 不接 `="{ row }"` 时拿不到行数据，模板里用 `row` 报未定义。
+7. **`#default="row"` 套错一层**：不带花括号时接到的是整个 scope 对象，得写 `row.row.logoUrl` 才对；要么加花括号解构，要么改名叫 `scope`。
+8. **`prop` 与插槽同时写**：插槽优先，`prop` 被忽略；没坏处但冗余，看代码的人会困惑。
+9. **照搬 Vue 2 老写法**：`slot-scope="scope"`、`<template slot="header">` 在 Vue 3 已废除，对应现在的 `#default="scope"` 和 `#header`；参考旧教程代码时尤其容易中招。
+10. **在插槽里直接改 `row`**：`row` 指向 `tableData` 里的原对象，直接改会绕过接口悄悄改掉列表数据（页面变了但后端没变）；这也是 `onEdit` 里逐字段拷到 `form`、而不是 `form = row` 的原因。
+
+## A.11 动态组件 `<component :is>`
+
+### 概念
+
+`<component>` **不是子组件**，`is` 也**不是它的 prop**。两者合起来是 Vue 的内置机制——**动态组件**。
+
+- `<component>` 是 **Vue 编译器认识的内置标签**，跟 `<template>` / `<slot>` / `<transition>` 同类；项目里找不到 `component.vue` 这个文件。它自己不渲染任何 DOM，只是个占位符：“看 `is` 指向谁，我就变成谁。”
+- `is` 是 **Vue 保留的特殊属性**，会被 Vue 自己拦下来用来决定渲染谁，**不会**作为 prop 传给目标组件。
+
+```vue
+<component :is="item.icon" />
+<!-- item.icon = 'HomeFilled' 时等价于手写 <HomeFilled /> -->
+<!-- item.icon = 'Goods'      时等价于手写 <Goods /> -->
+```
+
+### 与已学过的三个“类属性”对照
+
+| 属性 | 谁定义的 | 会不会传进子组件 |
+|---|---|---|
+| `:index`（A.9） | **Element Plus 组件**用 `defineProps` 声明的 | 会，它就是 prop |
+| `:key`（A.9） | **Vue 保留属性** | 不会，Vue 截走做 diff |
+| `:is`（本节） | **Vue 保留属性** | 不会，Vue 截走决定“渲染谁” |
+
+所以 `HomeFilled` 这个图标组件内部并没声明过叫 `is` 的 prop，它压根不知道 `is` 的存在。
+
+### 除 is 之外的属性会正常透传
+
+```vue
+<component :is="item.icon" :size="20" class="menu-icon" @click="fn" />
+<!-- 等价于（设 is 解析为 HomeFilled）： -->
+<HomeFilled :size="20" class="menu-icon" @click="fn" />
+```
+
+可以把 `<component>` 理解成一个“插座”：`is` 决定插哪个组件进来，其余属性、class、事件、插槽内容都原样交给被插进来的那个组件。
+
+### is 能接什么值
+
+```vue
+<component :is="item.icon" />   <!-- ① 字符串 = 组件名（必须已注册），本项目走这条 -->
+<component :is="Foo" />         <!-- ② 组件对象本身（import 进来的） -->
+<component :is="'h1'" />        <!-- ③ 原生标签名 → 渲染成 <h1> -->
+```
+
+### 本项目为何用它
+
+菜单是 `v-for` 循环出来的，每项图标不同。没有动态组件就得穷举：
+
+```vue
+<HomeFilled v-if="item.icon === 'HomeFilled'" />
+<Goods v-else-if="item.icon === 'Goods'" />
+<Lock v-else-if="item.icon === 'Lock'" />
+```
+
+而 `<component :is>` 让你只改 `menu.ts` 配置、模板一行不动——这正是 Part 7“数据驱动菜单”的基础。能存字符串而不是组件对象，前提是 `main.ts` 把图标包全量注册为全局组件（见下）；日后若为减体积改成按需 import，`menu.ts` 里就得存组件对象，改走②。
+
+### 图标为何不用 import：全局注册
+
+`main.ts` 里这个循环把图标包里**所有**图标一次性注册成全局组件，所以任何 `.vue` 里直接写 `<Fold />` 就能用：
+
+```ts
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  app.component(key, component)
+}
+```
+
+对照 `import { menuConfig } from './menu'`（局部引入，必须写），两者差别就是全局 vs 局部注册。
+
+### 图标为何要套 el-icon
+
+```vue
+<el-icon v-if="item.icon">
+  <component :is="item.icon" />
+</el-icon>
+```
+
+图标 SVG 自己没尺寸也没颜色（`fill="currentColor"` 表示颜色跟父元素的 `color` 走）。`el-icon` 是容器组件，负责给尺寸（`:size`）、给颜色、处理垂直对齐。两层职责完全不同：**`el-icon` 是真组件，`component` 是内置占位符**，别看成嵌套了两个组件。
+
+### 另一个典型场景：页签 / 多步表单
+
+```vue
+<script setup>
+import StepOne from './StepOne.vue'
+import StepTwo from './StepTwo.vue'
+const current = ref(StepOne)
+</script>
+
+<template>
+  <KeepAlive>
+    <component :is="current" />   <!-- 包 KeepAlive 可保留各页已填的数据 -->
+  </KeepAlive>
+</template>
+```
+
+不包 `<KeepAlive>` 时，切走的组件会被卸载，内部状态全丢；包上则只是隐藏，切回来还是原样。
+
+### 易错点
+
+1. **以为 `is` 会传给目标组件**：它被 Vue 截走了，目标组件收不到。
+2. **忘了 `:` 直接写 `is="item.icon"`**：会被当成字符串字面量，Vue 去找一个名叫 `item.icon` 的组件 → 页面空白 + 控制台警告。
+3. **组件名拼错或大小写不对**：`'homeFilled'` 找不到组件，Vue 只警告不报错，那块位置静默空白。
+4. **`is` 收到 `undefined`**：`MenuNode.icon` 是可选字段，所以模板里先用 `v-if="item.icon"` 把整层挡掉，没配图标的菜单项不渲染。
+5. **用在原生 HTML 标签上的 `is` 需前缀**：Vue 3 里 `<div is="Foo">` 不生效，得写 `<div is="vue:Foo">`；`<component :is>` 这种用法不受影响。
+
+## A.12 模板字符串与接口路径拼接
+
+### 反引号不是单引号
+
+`src/api/trademark.ts` 里路径外层包的是 **反引号 `` ` ``**（backtick，键盘左上角、Esc 下面、跟 `~` 同一个键），不是单引号 `'`。反引号包起来的字符串叫**模板字符串**（template literal，ES6），比普通引号多一个本领：**能用 `${}` 往字符串里塞变量**。
+
+```ts
+// ✅ 反引号：${} 被求值，page=1 limit=10 → '/admin/product/baseTrademark/1/10'
+`/admin/product/baseTrademark/${page}/${limit}`
+
+// ❌ 单引号：${page} 原样当文字发出去 → 后端收到字面量，必 404
+'/admin/product/baseTrademark/${page}/${limit}'
+
+// 😑 老写法：能跑但一堆加号和斜杠，容易漏
+'/admin/product/baseTrademark/' + page + '/' + limit
+```
+
+### 为何同一文件里两种引号并存
+
+| 例子 | 引号 | 原因 |
+|---|---|---|
+| `'/admin/product/baseTrademark/update'` | 单引号 | **纯静态**路径，没变量要插 |
+| `` `/admin/product/baseTrademark/remove/${id}` `` | 反引号 | **有变量**要插值 |
+
+项目 `.prettierrc.json` 配了 `"singleQuote": true`，意为“字符串默认用单引号”；但 Prettier **不会去动反引号**——它认得出模板字符串是另一种语法，不属于引号风格问题。所以规律是：**默认单引号，只有需要 `${}` 插值（或写多行字符串）时才换反引号**。没插值却用反引号属于多余写法。
+
+### 路径参数 vs 查询参数
+
+后端接口传参有两种风格，**前端写法完全不同**（具体用哪种以 swagger 为准）：
+
+```ts
+// ① 路径参数（path param）——本项目品牌分页用的这种
+request.get(`/admin/product/baseTrademark/${page}/${limit}`)
+
+// ② 查询参数（query param）——交给 axios 的 params，别手拼
+request.get('/some/list', { params: { page, limit, keyword } })
+// axios 自动拼成 ?page=1&limit=10&keyword=xxx
+```
+
+| | 路径参数 | 查询参数 |
+|---|---|---|
+| URL 长相 | `/baseTrademark/1/10` | `/some/list?page=1&limit=10` |
+| 语义 | **定位资源**，通常必填 | **过滤/分页/排序**，多为可选 |
+| 前端写法 | 模板字符串 `${}` 插值 | axios 的 `params` 对象 |
+| 缺值后果 | 路径直接变形 → 404 | 后端走默认值或忽略 |
+| 怎么确认 | 看 swagger 里路径含不含 `{xxx}` | swagger 标 `in: query` |
+
+**优先用 `params` 而不手拼 `?a=1&b=2`** 的理由：axios 会自动做 URL 编码（关键词带空格、`&`、`#` 不会把参数截断），且值为 `undefined` 的字段会被自动省略，写法还更好读。
+
+### 模板字符串的其他能力
+
+```ts
+`第 ${page} 页，共 ${Math.ceil(total / limit)} 页`   // ${} 里能放任意表达式，不只变量名
+`删除后不可恢复，确定删除“${row.tmName}”？`        // 拼提示文案（后续删除确认框会用）
+`第一行
+第二行`                                          // 天然支持换行，不用 \n
+```
+
+### 易错点
+
+1. **该用反引号却用了单引号**：`${page}` 原文发给后端，**编译不报错**，最难查；排查看浏览器 Network 里的真实请求 URL。
+2. **插值变量是 `undefined`**：URL 变成 `/baseTrademark/undefined/10`，后端参数解析失败；可给函数参数加默认值（`page = 1, limit = 10`）防一手。
+3. **拼接处斜杠多一个或少一个**：`//` 双斜杠在部分后端不等于单斜杠，直接 404；baseURL 末尾与路径开头只保留一边的 `/`。
+4. **手拼查询参数忘编码**：关键词里的空格、`&`、`#` 会把参数截断或错位；交给 `params` 由 axios 编码。
+5. **把反引号敲成中文引号 `‘’`**：输入法在中文状态下容易敲错，会直接报语法错误或变成普通汉字。
+6. **在模板字符串里写业务逻辑**：`${}` 里尽量只放变量或简单表达式，复杂计算先算成变量，否则路径很难读也难调。
+
 
 
 

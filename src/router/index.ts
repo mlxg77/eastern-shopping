@@ -15,7 +15,7 @@ const router = createRouter({
       component: () => import('../layout/AdminLayout.vue'),
       children: [
         { path: '', name: 'home', component: () => import('../views/HomeView.vue'), meta: { title: '首页' } },
-        { path: 'product/trademark', name: 'trademark', component: () => import('../views/PlaceholderView.vue'), meta: { title: '品牌管理' } },
+        { path: 'product/trademark', name: 'trademark', component: () => import('../views/product/TrademarkView.vue'), meta: { title: '品牌管理' } },
         { path: 'product/attr', name: 'attr', component: () => import('../views/PlaceholderView.vue'), meta: { title: '平台属性' } },
         { path: 'product/spu', name: 'spu', component: () => import('../views/PlaceholderView.vue'), meta: { title: 'SPU 管理' } },
         { path: 'product/sku', name: 'sku', component: () => import('../views/PlaceholderView.vue'), meta: { title: 'SKU 管理' } },
