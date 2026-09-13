@@ -11,7 +11,8 @@
 | 1 | 项目初始化与环境搭建 | 2026-09-13 | ✅ 完成 |
 | 2 | 引入 Element Plus 组件库 | 2026-09-13 | ✅ 完成 |
 | 3 | 清理示例代码与最小骨架搭建 | 2026-09-13 | ✅ 完成 |
-| 4 | （待开始） | — | ⬜ |
+| 4 | axios 封装与首次接口联调 | 2026-09-13 | ✅ 完成 |
+| 5 | （待开始） | — | ⬜ |
 
 ---
 
@@ -37,6 +38,7 @@
 | prettier | 3.9.5 | 代码格式化 |
 | element-plus | ^2.14.5 | UI 组件库（Part 2 引入） |
 | @element-plus/icons-vue | ^2.3.2 | Element 图标库（Part 2 引入） |
+| axios | ^1.20.0 | HTTP 请求库（Part 4 引入） |
 
 > 注意：这套版本比多数教程（Vite 4/5、Router 4、Pinia 2）新不少。跟教程写代码时如遇 API 报错，先怀疑版本差异。
 
@@ -202,3 +204,31 @@ app.mount('#app')
 1. **误删 `src/main.ts` → 页面全白**：清理示例文件时把应用入口一起删了，浏览器拿不到 JS，页面空白且没有任何报错弹窗。排查路径：dev 服务器日志出现 `Failed to load url /src/main.ts ... Does the file exist?` → 确认文件缺失 → `git checkout -- src/main.ts` 从首次提交恢复。**页面全白先查入口文件**：index.html 里的 `/src/main.ts` 是否在、dev 日志有无 Pre-transform error、浏览器控制台有无红色报错。
 2. **`env.d.ts` 兜底声明被新版 ESLint 判错**：编辑器兜底用的 `declare module '*.vue'` 采用老写法 `DefineComponent<{}, {}, any>`，触发 `no-empty-object-type` ×2 + `no-explicit-any` ×1，`pnpm lint` 整体失败（结尾 `[ELIFECYCLE] Command failed` 只是失败转述，不是新错误）。修法：去掉类型参数，用裸 `DefineComponent`（默认类型等效，且规则友好）。**教训：老教程里的 shim 片段，抄之前先过一遍新版工具链的检查。**
 3. **eslint 的"安静"即通过**：oxlint 通过时会明确报 `Found 0 warnings and 0 errors`；eslint 没问题时什么都不打印、直接回到提示符——不代表它没跑。
+
+---
+
+# Part 4 · axios 封装与首次接口联调
+
+## 目标
+
+搭出 `request 实例 → api 层 → 页面` 三层数据链路，首页从真实接口取数据并展示，请求错误统一提示。
+
+## 操作过程
+
+1. `pnpm add axios`（^1.20.0）。
+2. 新建 `src/utils/request.ts`：`axios.create` 建共享实例（baseURL 暂指向公开测试接口一言 `https://v1.hitokoto.cn`，超时 5 秒）；请求拦截器留空（预留 token 注入位置）；响应拦截器统一拆包返回 `response.data`，错误统一 `ElMessage.error` 提示。
+3. 新建 `src/api/home.ts`：定义 `Hitokoto` 接口（`hitokoto`/`from` 字段），`getHitokoto()` 用 `request.get<Hitokoto, Hitokoto>('/')` 声明类型。
+4. 重写 `src/views/HomeView.vue`：`onMounted` 钩子中 `await getHitokoto()`，成功回填 `sentence`/`source`；catch 兜底（拦截器已统一提示，页面不重复弹）。
+5. 验收四连通过（lint / type-check / build 全绿）；构建产物 js 增至 1.2MB（gzip 383KB，axios 约占 50KB）。
+
+## 原理与决策
+
+- **三层分层的意义**：页面永远不直接碰 axios。换后端只改 `request.ts` 的 baseURL 和 api 文件里的函数，页面层无感；新增业务模块 = 新增一个 api 文件。
+- **响应拦截器拆包的代价**：页面拿到的是数据本体，不用写 `.data`；但 axios 的默认类型"谎报"（声明返回 AxiosResponse，实际已被拆成 data），所以 `request.get<T, T>` 要写两个相同泛型——第一个是响应数据类型，第二个才是真实返回值类型。
+- **错误处理集中在拦截器**：网络错误、404、500 统一弹提示，页面 catch 只做善后。自己加的防御：`source.value = data.from || '未知'`，应对接口返回空出处。
+- **baseURL 暂写死**：后续用 `.env.development` / `.env.production` + `import.meta.env.VITE_API_BASE_URL` 管理，多环境切换不改代码。
+- **拦截器是切面**：鉴权头、全局 loading、埋点都挂这两个钩子，业务代码零侵入。
+
+## 踩坑记录
+
+本 Part 验收一次通过，未踩坑。仅留一个理解易错点备忘：**`v-if` 只作用于它所在的那一个元素**——首页"句子"行无条件显示（空时用"加载中"占位），"出处"行的 `v-if="source"` 只控制它自己显隐，两行之间没有联动；真要写"二选一"得用 `v-if` / `v-else` 成对出现。
