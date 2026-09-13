@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import TheWelcome from '../components/TheWelcome.vue'
+import { ref } from 'vue'
+const msg = ref('coming soon ~~')
 </script>
 
 <template>
-  <main>
-    <TheWelcome />
-    <el-button type="primary">主要按钮</el-button>
-  </main>
+  <div class="home">
+    <h1>硅谷甄选</h1>
+    <p>{{ msg }}</p>
+    <el-button type="primary" :icon="'Search'">随便看看</el-button>
+  </div>
 </template>

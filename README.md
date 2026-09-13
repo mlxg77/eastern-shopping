@@ -10,7 +10,8 @@
 |---|---|---|---|
 | 1 | 项目初始化与环境搭建 | 2026-09-13 | ✅ 完成 |
 | 2 | 引入 Element Plus 组件库 | 2026-09-13 | ✅ 完成 |
-| 3 | （待开始） | — | ⬜ |
+| 3 | 清理示例代码与最小骨架搭建 | 2026-09-13 | ✅ 完成 |
+| 4 | （待开始） | — | ⬜ |
 
 ---
 
@@ -171,3 +172,33 @@ app.mount('#app')
 5. **版本差异**：本项目为 element-plus ^2.14.5，比多数教程（2.2~2.5）新，个别组件 API 有调整；查用法以官方文档为准，不要照搬旧教程代码。
 
 官方文档：https://element-plus.org/zh-CN/
+
+---
+
+# Part 3 · 清理示例代码与最小骨架搭建
+
+## 目标
+
+删掉脚手架示例内容（HelloWorld、About 页等），让项目跑出自己的界面：顶部导航 + 路由出口 + 首页占位。
+
+## 操作过程
+
+1. 删除示例文件：`src/components/` 整个目录、`src/views/AboutView.vue`、`src/assets/logo.svg`；**清空** `src/assets/main.css`（保留空文件——main.ts 仍 import 它）。`src/stores/counter.ts` 暂留，作 Pinia 写法参考。
+2. `src/App.vue` 重写为纯骨架：`<header>` 站点导航（logo + RouterLink）+ `<main>` 里的 `<RouterView />`，另自加 `<footer>` 版权行。
+3. `src/router/index.ts` 删除 about 路由，只保留 home。
+4. `src/views/HomeView.vue` 重写为占位首页（标题 + `ref` 文案 + el-button/图标），顺带完成 Element Plus 组件、全局图标、响应式写法三合一验证。
+5. 最小全局样式写入 `src/assets/main.css`（header 布局、激活路由高亮复用 `--el-color-primary` CSS 变量）。
+6. 验收四连：`pnpm dev` 页面正常 → `pnpm lint` → `pnpm type-check` → `pnpm build`，全过才算完成。
+
+## 原理与决策
+
+- **`<RouterView />` 是路由出口**：页面组件渲染的位置；`<RouterLink>` 是声明式导航，当前路由自动带 `router-link-active` class，配 CSS 即可高亮。
+- **main.css 清空而不删文件**：`main.ts` 里 `import './assets/main.css'`，删文件会让构建直接报错；清空内容、保留文件是安全做法。
+- **阶段验收标准**：dev 页面能打开只代表"浏览器没崩"；`lint`（代码规范）+ `type-check`（TS 严格检查，dev 服务器不做）+ `build`（生产构建）三道全过才算代码健康。以后每个 Part 结束都跑这套。
+- **构建产物观察**：首次 build 产出 js 1.15MB（gzip 364KB）、css 360KB（gzip 48KB），js 偏大的主因是全量引入 Element Plus（Part 2 的决策，警告非错误）；按需引入留待业务成型后评估。
+
+## 踩坑记录
+
+1. **误删 `src/main.ts` → 页面全白**：清理示例文件时把应用入口一起删了，浏览器拿不到 JS，页面空白且没有任何报错弹窗。排查路径：dev 服务器日志出现 `Failed to load url /src/main.ts ... Does the file exist?` → 确认文件缺失 → `git checkout -- src/main.ts` 从首次提交恢复。**页面全白先查入口文件**：index.html 里的 `/src/main.ts` 是否在、dev 日志有无 Pre-transform error、浏览器控制台有无红色报错。
+2. **`env.d.ts` 兜底声明被新版 ESLint 判错**：编辑器兜底用的 `declare module '*.vue'` 采用老写法 `DefineComponent<{}, {}, any>`，触发 `no-empty-object-type` ×2 + `no-explicit-any` ×1，`pnpm lint` 整体失败（结尾 `[ELIFECYCLE] Command failed` 只是失败转述，不是新错误）。修法：去掉类型参数，用裸 `DefineComponent`（默认类型等效，且规则友好）。**教训：老教程里的 shim 片段，抄之前先过一遍新版工具链的检查。**
+3. **eslint 的"安静"即通过**：oxlint 通过时会明确报 `Found 0 warnings and 0 errors`；eslint 没问题时什么都不打印、直接回到提示符——不代表它没跑。
