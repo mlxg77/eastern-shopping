@@ -1,22 +1,32 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import HomeView from '../views/HomeView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      path: '/',
-      name: 'home',
-      component: HomeView,
-    },
-    {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
     },
+    {
+      // 后台布局壳：所有业务页面都是它的 children
+      path: '/',
+      component: () => import('../layout/AdminLayout.vue'),
+      children: [
+        { path: '', name: 'home', component: () => import('../views/HomeView.vue'), meta: { title: '首页' } },
+        { path: 'product/trademark', name: 'trademark', component: () => import('../views/PlaceholderView.vue'), meta: { title: '品牌管理' } },
+        { path: 'product/attr', name: 'attr', component: () => import('../views/PlaceholderView.vue'), meta: { title: '平台属性' } },
+        { path: 'product/spu', name: 'spu', component: () => import('../views/PlaceholderView.vue'), meta: { title: 'SPU 管理' } },
+        { path: 'product/sku', name: 'sku', component: () => import('../views/PlaceholderView.vue'), meta: { title: 'SKU 管理' } },
+        { path: 'acl/user', name: 'acl-user', component: () => import('../views/PlaceholderView.vue'), meta: { title: '用户管理' } },
+        { path: 'acl/role', name: 'acl-role', component: () => import('../views/PlaceholderView.vue'), meta: { title: '角色管理' } },
+        { path: 'acl/permission', name: 'acl-permission', component: () => import('../views/PlaceholderView.vue'), meta: { title: '菜单管理' } },
+      ],
+    },
   ],
 })
+
 
 // 全局前置守卫：任何路由跳转前都经过这里
 // 注意：useUserStore 必须写在回调内部——import 这个文件时 Pinia 还没激活，

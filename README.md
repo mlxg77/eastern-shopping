@@ -14,8 +14,10 @@
 | 4 | axios 封装与首次接口联调 | 2026-09-13 | ✅ 完成 |
 | 5 | 接入真实后端与登录联调 | 2026-09-13 | ✅ 完成 |
 | 6 | 路由守卫与退出登录 | 2026-09-13 | ✅ 完成 |
-| 7 | （待开始） | — | ⬜ |
+| 7 | 后台布局与动态菜单骨架 | 2026-09-13 | ✅ 完成 |
+| 8 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
+| └ A.10 | 具名插槽 #title（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
 
 ---
 
@@ -311,6 +313,37 @@ app.mount('#app')
 
 ---
 
+# Part 7 · 后台布局与动态菜单骨架
+
+## 目标
+
+1. 经典后台布局：**左侧深色菜单栏 + 顶栏（折叠按钮 / 用户信息 / 退出）+ 右侧内容区**。
+2. 菜单**数据驱动**：菜单项抽成配置数组（`src/layout/menu.ts`），模板 `v-for` 渲染——后续接权限时只改数据。
+3. 路由改**嵌套结构**：`/login` 独立全屏，业务页面全部作为布局组件 `AdminLayout.vue` 的 children。
+4. 7 个菜单项先挂同一个**占位页** `PlaceholderView.vue`（读 `route.meta.title` 显示标题），Part 8 起逐个替换为真实业务。
+
+## 操作过程
+
+1. 新建 `src/layout/menu.ts`：`MenuLeaf`（必有 path）/ `MenuNode`（icon 可选、children 可选）接口 + `menuConfig` 配置数组（首页 / 商品管理 4 项 / 权限管理 3 项）。
+2. 新建 `src/layout/AdminLayout.vue`：`el-container` 外壳；`el-aside` 内 `el-menu` 三关键 prop——**`router`**（index 当路径跳转）、**`:default-active="route.path"`**（刷新保持高亮）、**`:collapse`**（折叠）；顶栏放折叠按钮 + 用户区（头像/名字/退出，`onLogout` 与 Part 6 相同）。
+3. 新建 `src/views/PlaceholderView.vue`：`el-card` + `route.meta.title`。
+4. `App.vue` 退化为纯 `<RouterView />`——布局由路由决定渲染谁，App 不再关心长什么样。
+5. `src/router/index.ts` 重写：routes 变为 `/login` 独立路由 + `/` 布局路由带 8 个 children（path 不带前导 `/`，由父路径拼接），每个 children 配 `meta.title`；**守卫一字未改**。
+6. `src/assets/main.css` 精简为全局基础（`html/body/#app` 高度 100% + 字体），废弃的 `.site-header` 等死样式删除，布局样式全部收进组件 `scoped`。
+
+## 原理与决策
+
+- **布局即组件**：后台壳是一个普通组件，登录页与后台壳平级，由路由选择渲染——这是"App 变薄、职责下沉"的标准组织方式。
+- **嵌套路由 + `meta`**：children 渲染在布局的 `<RouterView />` 里；`meta` 是路由的"自定义备注字段"，面包屑、页签、占位页标题都从这里读。
+- **数据驱动菜单**：菜单模板只写一遍（el-sub-menu / el-menu-item 二选一），内容来自 `menuConfig`——从写死到配置化是"权限化菜单"的过渡形态。
+- **职责分离验证**：布局大改而守卫零改动，说明鉴权逻辑放对了层。
+
+## 踩坑记录
+
+- **`Index.vue` 被 ESLint 判 `vue/multi-word-component-names` 错**：组件名取自文件名，`Index` 是单词即违规。改名 `AdminLayout.vue` 并同步路由引用后通过。规则本意是避免与（未来的）原生 HTML 标签撞名，命名组件时直接用多词（如 `XxxLayout` / `XxxView`）最省事。
+
+---
+
 # 附录 · Vue 概念补充（持续累积）
 
 > 本部分不占用 Part 序号，作为**持续累积的 Vue 概念笔记始终置于整篇最后**：开发中遇到新概念就往这里追加一小节。日后新增的开发阶段 Part 都插在本附录**之前**，确保它永远是末章。
@@ -324,6 +357,9 @@ app.mount('#app')
 - [A.5 v-bind 单向传值与 v-model 双向绑定](#a5-v-bind-单向传值与-v-model-双向绑定)
 - [A.6 父子组件通信（props 与 emit）](#a6-父子组件通信props-与-emit)
 - [A.7 组件外使用 Pinia 的时机](#a7-组件外使用-pinia-的时机)
+- [A.8 模块引入路径：裸模块名、别名与相对路径](#a8-模块引入路径裸模块名别名与相对路径)
+- [A.9 Element Plus 菜单的 index 与 Vue 的 key 之辨](#a9-element-plus-菜单的-index-与-vue-的-key-之辨)
+- [A.10 具名插槽 #title](#a10-具名插槽-title)
 
 ## A.1 生命周期 onMounted
 
@@ -810,5 +846,197 @@ Did you forget to install pinia?
 - **组件管“用户看到什么、去哪儿”**：`ElMessage` 提示、`router.push` 跳转。
 
 所以 `App.vue` 的退出登录写成两层是刻意的：`userStore.logout()` 只负责清登录态，提示语和跳转留在组件里。因为同一个 `logout()` 会被多处调用——用户主动点退出（提示“已退出登录”）、路由守卫发现 token 失效（回登录页重来）、拦截器收到 401（提示“登录已失效”）——提示语和目标页各不相同，写死在 store 里就没法区分了。
+
+## A.8 模块引入路径：裸模块名、别名与相对路径
+
+### 概念
+
+`import` 后面跟的那串字符串叫**模块请求路径**，它的开头几个字符就决定了 Vite/TS 去哪里找。`src/layout/Index.vue` 开头那几行正好集齐三种：
+
+```ts
+import { ref } from 'vue'                 // 裸模块名
+import { useUserStore } from '@/stores/user'  // 别名
+import { menuConfig } from './menu'       // 相对路径
+```
+
+| 写法 | 含义 | 解析结果 |
+|---|---|---|
+| `'vue'` | **裸模块名**（不以 `.` 或 `/` 开头）→ 去 `node_modules` 找第三方包 | `node_modules/vue` |
+| `'@/stores/user'` | **别名**：`@` 被配成了 `src` | `src/stores/user.ts` |
+| `'./menu'` | **相对路径**：从当前文件所在目录出发 | `src/layout/menu.ts` |
+
+### `./` 到底是什么
+
+`./` = **当前文件所在的目录**。参照物是“写这行 import 的文件自己在哪”，**不是**项目根目录、也不是运行目录。`Index.vue` 在 `src/layout/` 下，所以 `./menu` 就是隔壁的 `src/layout/menu.ts`。
+
+```
+./menu          同级目录
+../views/X      上一级（每个 .. 往上跳一层）
+../../utils/y   上两级
+@/stores/user   别名，等价 src/stores/user
+```
+
+### 别名 `@` 不是 JS 自带的
+
+它需要**两处配置保持一致**：
+
+- `vite.config.ts` 的 `resolve.alias` → 管**构建时能不能跑**
+- `tsconfig.app.json` 的 `compilerOptions.paths` → 管**TS/编辑器能不能识别**
+
+只配一边就会出现“能跑但编辑器报红”或反之（对照 Part 5 踩坑记录里的 ts(2307)）。
+
+### 后缀能不能省
+
+Vite/TS 会自动补 `.ts` `.tsx` `.js` `.json` 等，**但 `.vue` 必须写全**：
+
+```ts
+import { menuConfig } from './menu'           // ✅ .ts 可省
+import HomeView from '../views/HomeView.vue'  // ✅ .vue 必须写
+import HomeView from '../views/HomeView'      // ❌ 找不到
+```
+
+### 选用原则
+
+- **用 `./` 相对路径**：引用**紧密关联、同目录**的文件。如 `menu.ts` 是专给 layout 用的配置，跟 `Index.vue` 是一体，用 `./` 能表达“它俩是一伙的”，整个 `layout/` 文件夹搬走也不断链。
+- **用 `@/` 别名**：引用**跨模块的公共资源**（stores / api / utils / components）。不用数 `../../`，文件换位置也不用改路径。
+
+### 易错点
+
+1. **以为 `./` 是“项目根目录”**：它永远参照当前文件位置，同一串 `./menu` 写在不同文件里指向不同。
+2. **写成 `/menu`**（少了点）：那是“服务器根”路径，前端源码里几乎用不到，会直接找不到模块。
+3. **`.vue` 漏写后缀**：报 “Cannot find module”，容易误判为路径写错。
+4. **两处别名配置不同步**：新增别名（如 `~` `#`）时必须 vite 和 tsconfig 同时改。
+
+## A.9 Element Plus 菜单的 index 与 Vue 的 key 之辨
+
+### 概念
+
+`el-sub-menu` / `el-menu-item` 上的 `index` 是 **Element Plus 组件自己声明的 prop**（必填，`string`），跟 A.6 里 `:size="28"` 完全同一机制的父传子。
+
+它**不是“索引下标”**，跟 `v-for` 的第二个参数毫无关系；Element Plus 只是借 `index` 这个词表示“**唯一标识**”，可以理解成这一项的身份证号。
+
+```vue
+<div v-for="(item, index) in list">   <!-- v-for 的 index：数组下标 0 1 2 -->
+<el-sub-menu :index="item.title">    <!-- 组件的 index：唯一标识字符串 -->
+```
+
+### 两个 index 作用不同
+
+| 用在哪 | 本项目传的值 | 作用 |
+|---|---|---|
+| `el-sub-menu` | `item.title`（如 `'商品管理'`） | **仅唯一标识**，用于记录该分组展开/收起 |
+| `el-menu-item` | `child.path`（如 `'/product/trademark'`） | 既是唯一标识，**又被当成跳转路径** |
+
+为什么后者会“顺便跳转”？因为 `el-menu` 上加了 `router` 属性，开启后点击 `el-menu-item` 时 Element Plus 会拿它的 `index` 去调 `router.push()`。此时 `index` 必须是**真实存在的路由路径**。
+
+而 `el-sub-menu` 是不可点击跳转的分组容器，点它只展开/收起，不参与 `router` 跳转；加上 `menu.ts` 里带 `children` 的节点本来就没有 `path`（`MenuNode.path` 是可选），所以传 `title` 正好现成又唯一。
+
+### index 与 key 分属不同体系
+
+```vue
+<template v-for="item in menuConfig" :key="item.title">   <!-- key：给 Vue 用 -->
+  <el-sub-menu v-if="item.children" :index="item.title">  <!-- index：给 Element Plus 用 -->
+```
+
+| 属性 | 谁在用 | 干什么 |
+|---|---|---|
+| `:key` | **Vue 框架** | diff 时复用 DOM 节点；为保留属性，**不会**传进子组件 props |
+| `:index` | **Element Plus 组件** | 组件自己的业务逻辑（展开状态、跳转路径） |
+
+两者碰巧都传了 `item.title`，但用途毫无关系。
+
+### 易错点
+
+1. **把 `index` 当数组下标传数字**：类型要求 `string`，且开启 `router` 后会被当路径，传下标会导致跳转到不存在的路由。
+2. **`index` 重复**：要求在整个 `el-menu` 内全局唯一；若出现两个同名分组，展开状态会互相串。解法：改传 `'group-' + item.title` 或在 `MenuNode` 里加独立的 `key` 字段。
+3. **高亮对不上**：`el-menu` 的 `default-active` 传的值必须能在某个 `el-menu-item` 的 `index` 里找到；本项目传 `route.path`，所以菜单 `path` 必须与路由表完全一致。
+4. **给 `el-sub-menu` 传了真路径**：不报错但无意义，还可能跟子项的 `index` 撞车；分组节点只需一个不重复的标识。
+
+## A.10 具名插槽 #title
+
+### 概念
+
+**插槽（slot）= 组件预留的“坑位”**：组件把一部分内容的决定权交给使用方，使用方往坑里填任意模板。跟 props 的分工：**props 传“数据”，插槽传“结构”**（对照 A.6）。
+
+`<template #title>` 中的 `#title` 是 **`v-slot:title` 的缩写**，意思是“这块内容请放到组件里叫 `title` 的那个坑位上”。没写 `#xxx` 的内容则落入**默认插槽**。
+
+### 组件内部是怎么“留坑”的
+
+子组件用 `<slot>` 声明坑位，带 `name` 就是具名插槽：
+
+```vue
+<!-- 子组件（类似 el-sub-menu 的简化结构） -->
+<div class="sub-menu">
+  <div class="title-row" @click="toggle">
+    <slot name="title" />   <!-- 坑位一：永远可见的标题行 -->
+  </div>
+  <div v-show="opened">
+    <slot />                <!-- 坑位二：默认插槽，展开后才露出 -->
+  </div>
+</div>
+```
+
+“插槽名叫什么”完全由组件作者定，Element Plus 的每个组件文档都有一张 **Slots 表**，用前先查。
+
+### 本项目实例一：el-sub-menu 的两个坑位
+
+`src/layout/Index.vue`：
+
+```vue
+<el-sub-menu v-if="item.children" :index="item.title">
+  <template #title>          <!-- → title 插槽：一级标题行 -->
+    <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
+    <span>{{ item.title }}</span>
+  </template>
+
+  <el-menu-item v-for="child in item.children" :index="child.path">
+    {{ child.title }}        <!-- → 默认插槽：展开后的二级子项 -->
+  </el-menu-item>
+</el-sub-menu>
+```
+
+| 插槽 | 放什么 | 显示在哪 |
+|---|---|---|
+| `title` | 分组标题（图标 + 文字） | 那一行**永远可见**，点它展开/收起，右侧带小箭头 |
+| 默认插槽 | 子菜单项 `el-menu-item` | 展开后才露出的下拉列表 |
+
+**去掉 `<template #title>` 的后果**：图标和文字会掉进默认插槽，跟子菜单项混在一起变成“展开后才看得到的一项”，而一级标题行变成空白——不报错，但菜单直接错乱。
+
+### 本项目实例二：el-menu-item 的 #title 是另一个用途
+
+```vue
+<el-menu-item v-else :index="item.path">
+  <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>  <!-- 插槽外 -->
+  <template #title>{{ item.title }}</template>                       <!-- 插槽内 -->
+</el-menu-item>
+```
+
+这里的 `title` 插槽是为了**配合侧边栏折叠**：
+
+- 图标写在插槽**外面** → 折叠成 64px 时依旧保留；
+- 文字写在 `#title` **里面** → 折叠时自动隐藏，鼠标悬停时变成小气泡（tooltip）提示。
+
+这就是点折叠按钮后“只剩一列图标、悬停还能看到名字”的实现方式；文字直接裸写在外面的话，折叠时它会被挤压变形。
+
+### 写法速查
+
+| 写法 | 全写 | 含义 |
+|---|---|---|
+| `<template #title>` | `v-slot:title` | 填名为 title 的具名插槽 |
+| 直接写内容 | — | 落入默认插槽（等价 `#default`） |
+| `#default="{ row }"` | `v-slot:default="{ row }"` | **作用域插槽**：接子组件反传上来的数据（写表格列常用） |
+| `#[name]` | `v-slot:[name]` | 动态插槽名，插槽名取自变量 |
+
+常见插槽名：`title` / `header` / `footer` / `default` / `append` / `empty`。
+
+### 易错点
+
+1. **忘写 `<template #title>`**：内容静默地掉进默认插槽，不报错但布局错位；看到“标题没了、内容多了一项”先查插槽名。
+2. **`#title` 写到普通元素上**：`v-slot` 只能用在 `<template>` 或组件标签上，写成 `<div #title>` 会报错。
+3. **插槽名大小写不会自动转换**：Vue 3 的插槽名是原样匹配，`#itemTitle` 和 `#item-title` 是两个不同的坑（不同于 props/事件的 kebab ↔ camel 自动对应，见 A.6）；名字拼错就是静默不渲染。
+4. **以为 `#title` 只能放文字**：它是一整块区域，图标、标记、`el-tag` 都能塞——本项目就是图标 + 文字两个元素。
+5. **分不清 `#title` 插槽与 `title` prop**：有些组件（如 `el-dialog`）两者都支持——prop 只能传纯文本，插槽能放任意结构；同时写时插槽优先。
+6. **作用域插槽漏写参数**：`#default` 不接 `="{ row }"` 时拿不到行数据，模板里用 `row` 会报未定义。
+
 
 
