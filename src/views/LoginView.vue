@@ -57,8 +57,6 @@ async function onSubmit() {
   loading.value = true
   try {
     await userStore.login(form)
-    await userStore.fetchUserInfo()   // 新增：登录后立刻拉用户信息，首页右上角才有头像
-
     ElMessage.success('登录成功')
     router.push('/')
   } catch {

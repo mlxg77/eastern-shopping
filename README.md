@@ -13,7 +13,8 @@
 | 3 | 清理示例代码与最小骨架搭建 | 2026-09-13 | ✅ 完成 |
 | 4 | axios 封装与首次接口联调 | 2026-09-13 | ✅ 完成 |
 | 5 | 接入真实后端与登录联调 | 2026-09-13 | ✅ 完成 |
-| 6 | （待开始） | — | ⬜ |
+| 6 | 路由守卫与退出登录 | 2026-09-13 | ✅ 完成 |
+| 7 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 
 ---
@@ -281,6 +282,35 @@ app.mount('#app')
 
 ---
 
+# Part 6 · 路由守卫与退出登录
+
+## 目标
+
+1. 未登录访问任意页面 → 弹回 `/login`；已登录访问 `/login` → 回首页。
+2. "F5 刷新拉用户信息"从 `App.vue` 的 `onMounted` **上移到全局前置守卫**——收敛 Part 5 的补丁式修复，落地附录 A.1 易错点 4 的正规解法。
+3. 退出登录：调后端登出接口 + **无条件**清理本地登录态。
+
+## 操作过程
+
+1. `src/api/user.ts` 加 `reqLogout`（`POST /admin/acl/index/logout`）。
+2. `src/stores/user.ts` 加 `logout()`：try 里调后端登出（失败不阻塞），try 之外清空 `token` / `userInfo` / `localStorage`。
+3. `src/router/index.ts` 注册 `router.beforeEach(async (to) => {...})` 全局前置守卫，三分支：未登录只放行 `/login`；已登录访问 `/login` 回首页；已登录但无 `userInfo` 则补拉（失败即 token 失效 → `logout()` + 回登录页）。`useUserStore()` 必须写在回调内部（时机原理见附录 A.7）。
+4. `src/App.vue`：删除 `onMounted`（职责被守卫接管）；用户区加"退出"按钮（`el-button link`），`onLogout` = `store.logout()` + 成功提示 + 跳 `/login`。
+5. `src/views/LoginView.vue`：删除 Part 5 修复时加的 `fetchUserInfo()`——守卫第 3 分支统一拉取，留着会双发 `info` 请求。
+
+## 原理与决策
+
+- **守卫返回值语义**：`true` / 不返回 = 放行；`false` = 中断；字符串/对象 = 重定向到该地址。
+- **职责归位**：登录态初始化是"路由层"职责而非某个组件的生命周期；本 Part 是"组件补丁演进为结构性方案"的典型过程。
+- **JWT 无状态退出**：前端清空 token 即完成退出；调后端 logout 只是"告知"（后端有黑名单机制时才有实际意义）；因此本地清理必须放在 try/catch 之外无条件执行。
+- **store 与组件的职责边界**：store 管"数据变成什么样"（清状态），组件管"用户看到什么、去哪儿"（提示语 + 跳转）——`logout()` 会被多处复用（主动退出 / token 失效 / 未来的 401），提示与目标页各不相同，写死在 store 里就没法区分（详见附录 A.7 末节）。
+
+## 踩坑记录
+
+本 Part 一次通过，未踩坑。守卫中 `useUserStore()` 的调用时机（回调内 vs 模块顶层）已沉淀为附录 A.7。
+
+---
+
 # 附录 · Vue 概念补充（持续累积）
 
 > 本部分不占用 Part 序号，作为**持续累积的 Vue 概念笔记始终置于整篇最后**：开发中遇到新概念就往这里追加一小节。日后新增的开发阶段 Part 都插在本附录**之前**，确保它永远是末章。
@@ -293,6 +323,7 @@ app.mount('#app')
 - [A.4 空值合并运算符与问号家族](#a4-空值合并运算符与问号家族)
 - [A.5 v-bind 单向传值与 v-model 双向绑定](#a5-v-bind-单向传值与-v-model-双向绑定)
 - [A.6 父子组件通信（props 与 emit）](#a6-父子组件通信props-与-emit)
+- [A.7 组件外使用 Pinia 的时机](#a7-组件外使用-pinia-的时机)
 
 ## A.1 生命周期 onMounted
 
@@ -706,5 +737,78 @@ v-model="x"  ≡  :model-value="x"（父传子 props） + @update:model-value="x
 2. **父监听事件名与 emit 不一致**：`emit('submit')` 就得 `@submit`，名字对不上时静默失效不报错。
 3. **多层组件逐级透传**：props 一层层往下传太繁琐时，跨层共享用 Pinia 或 `provide/inject`，别硬透。
 4. **大小写**：模板里事件/prop 用 kebab-case（`@update:model-value`），JS 里用 camelCase（`modelValue`），两边自动对应。
+
+## A.7 组件外使用 Pinia 的时机
+
+### 概念
+
+`useUserStore()` 不是“创建 store”，而是**去当前激活的 pinia 实例里取 store**。而 pinia 只在 `main.ts` 执行 `app.use(createPinia())` 的那一刻才被激活。所以在组件之外用 store，关键不是能不能 import，而是**什么时候调用**。
+
+一句话规则：**在组件外，`useUserStore()` 必须写在“会被延迟执行的函数体内部”，不能写在模块顶层。**
+
+本项目 `src/router/index.ts` 的写法：
+
+```ts
+import { useUserStore } from '@/stores/user'   // ✅ import 只是拿到函数，没调用
+
+router.beforeEach(async (to) => {
+  const userStore = useUserStore()             // ✅ 导航发生时才调用，pinia 早已激活
+  // ...
+})
+```
+
+### 为什么顶层调用会炸
+
+因为 **ES module 的 import 会被提升**：被导入模块的顶层代码，在导入方自己的代码之前就全部执行完了。看 `main.ts` 的真实时间线：
+
+```
+① import './router'  →  router/index.ts 模块体开始执行
+     ├─ createRouter({...})        ✅ 没问题
+     └─ 若此处写 useUserStore()    ❌ pinia 还不存在
+② createApp(App)
+③ app.use(createPinia())          ← pinia 到这一刻才激活
+④ app.use(router)
+⑤ app.mount()  →  触发首次导航  →  beforeEach 回调执行  ✅ 此时取得到 store
+```
+
+顶层调用发生在 ①，激活发生在 ③，①在③之前，所以必然报错：
+
+```
+"getActivePinia()" was called but there was no active Pinia.
+Did you forget to install pinia?
+```
+
+写进 `beforeEach` 回调，调用时机被推迟到 ⑤，问题自然消失。
+
+### 为什么 import 和 defineStore 都不报错
+
+| 代码 | 做了什么 | 需要 pinia 吗 |
+|---|---|---|
+| `import { useUserStore }` | 只取到函数引用 | 不需要 |
+| `defineStore('user', () => {...})` | 只登记一份“配方”（见 A.3 懒执行） | 不需要 |
+| `useUserStore()` | 按配方造实例并挂到 pinia 上（首次），之后复用 | **需要** |
+
+### 适用范围速查
+
+| 场景 | 写法 |
+|---|---|
+| 组件内（`<script setup>`） | 顶层直接调用即可，渲染必在 `app.mount()` 之后 |
+| 路由守卫 | 写在 `beforeEach` 等回调**内部** |
+| axios 拦截器（取 token、处理 401） | 写在拦截器函数**内部** |
+| 普通工具函数 | 写在函数体内，别放模块顶层 |
+
+### 易错点
+
+1. **在 `main.ts` 里把 `app.use(router)` 写在 `app.use(createPinia())` 之前**：`app.use(router)` 会触发首次导航解析，那时 pinia 还没装，守卫里即使写在回调内也一样报 `getActivePinia` 错误。正确顺序：**先 pinia，再 router**。
+2. **在模块顶层缓存 store**（`const store = useUserStore()` 放文件顶部再到处用）：等价于顶层调用，同样报错。
+3. **误以为是 import 路径问题**：报错信息只提 pinia 未安装，容易往别处找；只要看到 `getActivePinia`，就往“调用时机太早”上想。
+4. **在 store 里跳路由**：`useRouter()` 是组件专用的 composable，store/拦截器里拿不到，只能 `import router from '@/router'`；但更推荐把跳转留给调用方（职责边界见下）。
+
+### 顺带一条：store 与组件的职责边界
+
+- **store 管“数据变成什么样”**：调接口、改 `token`/`userInfo`、清 localStorage。
+- **组件管“用户看到什么、去哪儿”**：`ElMessage` 提示、`router.push` 跳转。
+
+所以 `App.vue` 的退出登录写成两层是刻意的：`userStore.logout()` 只负责清登录态，提示语和跳转留在组件里。因为同一个 `logout()` 会被多处调用——用户主动点退出（提示“已退出登录”）、路由守卫发现 token 失效（回登录页重来）、拦截器收到 401（提示“登录已失效”）——提示语和目标页各不相同，写死在 store 里就没法区分了。
 
 

@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
+const router = useRouter()
 const userStore = useUserStore()
 
-// 刷新页面时：本地有 token 就拉一次用户信息（顺带验证 token 头自动携带）
-onMounted(() => {
-  if (userStore.token) {
-    userStore.fetchUserInfo()
-  }
-})
+async function onLogout() {
+  await userStore.logout()
+  ElMessage.success('已退出登录')
+  router.push('/login')
+}
 </script>
 
 <template>
@@ -20,10 +21,11 @@ onMounted(() => {
       <RouterLink to="/">首页</RouterLink>
     </nav>
     <div class="user-box">
-      <!-- 用 <template> 是因为已登录状态要显示两个元素（头像 + 名字），负责把这两个元素捆在一起共用一个 v-if-->
+      <!-- 用 <template> 把头像+名字+退出捆在一起共用一个 v-if -->
       <template v-if="userStore.userInfo">
         <el-avatar :size="28" :src="userStore.userInfo.avatar" />
         <span>{{ userStore.userInfo.name }}</span>
+        <el-button link type="danger" @click="onLogout">退出</el-button>
       </template>
       <RouterLink v-else to="/login">登录</RouterLink>
     </div>
@@ -32,7 +34,7 @@ onMounted(() => {
   <main>
     <RouterView />
   </main>
-  <!-- 页脚 --> 
+  <!-- 页脚 -->
   <footer class="site-footer">
     <p>版权所有 &copy; 2026 硅谷甄选</p>
   </footer>

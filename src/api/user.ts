@@ -27,6 +27,10 @@ export function reqLogin(data: LoginForm) {
   return request.post<unknown, ResponseBody<string>>('/admin/acl/index/login', data)
 }
 
+export function reqLogout() {
+  return request.post<unknown, ResponseBody<null>>('/admin/acl/index/logout')
+}
+
 export function reqUserInfo() {
   return request.get<unknown, ResponseBody<UserInfo>>('/admin/acl/index/info')
 }

@@ -1,10 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { reqLogin, reqUserInfo } from '@/api/user'
+import { reqLogin, reqLogout, reqUserInfo } from '@/api/user'
 import type { LoginForm, UserInfo } from '@/api/user'
 
 export const useUserStore = defineStore('user', () => {
-  // token 初始化时从 localStorage 读，刷新页面不丢
   const token = ref(localStorage.getItem('token') ?? '')
   const userInfo = ref<UserInfo | null>(null)
 
@@ -19,5 +18,16 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = res.data
   }
 
-  return { token, userInfo, login, fetchUserInfo }
+  async function logout() {
+    try {
+      await reqLogout() // 告知后端（失败了也不阻塞本地清理）
+    } catch {
+      // 静默
+    }
+    token.value = ''
+    userInfo.value = null
+    localStorage.removeItem('token')
+  }
+
+  return { token, userInfo, login, fetchUserInfo, logout }
 })
