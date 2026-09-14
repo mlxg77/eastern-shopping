@@ -18,7 +18,8 @@
 | 8 | 品牌管理（第一个 CRUD 业务页） | 2026-09-13 | ✅ 完成 |
 | 9 | 品牌 LOGO 图片上传 | 2026-09-14 | ✅ 完成 |
 | 10 | 平台属性管理（三级联动 + 嵌套 CRUD） | 2026-09-14 | ✅ 完成 |
-| 11 | （待开始） | — | ⬜ |
+| 11 | SPU 列表展示与三级分类公共组件抽取 | 2026-09-15 | ✅ 完成 |
+| 12 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -202,7 +203,7 @@ app.mount('#app')
 3. `src/router/index.ts` 删除 about 路由，只保留 home。
 4. `src/views/HomeView.vue` 重写为占位首页（标题 + `ref` 文案 + el-button/图标），顺带完成 Element Plus 组件、全局图标、响应式写法三合一验证。
 5. 最小全局样式写入 `src/assets/main.css`（header 布局、激活路由高亮复用 `--el-color-primary` CSS 变量）。
-6. 验收四连：`pnpm dev` 页面正常 → `pnpm lint` → `pnpm type-check` → `pnpm build`，全过才算完成。
+6. 验收四连：`pnpm dev` 页面正常 → `pnpm lint` 写得规范 → `pnpm type-check` 类型安全→ `pnpm build`打包正常，全过才算完成。
 
 ## 原理与决策
 
@@ -488,6 +489,48 @@ app.mount('#app')
 | 表单字段 | 扁平（tmName/logoUrl） | 嵌套（attrName + attrValueList 数组） |
 | 保存 | 单条记录字段 | 属性值整存整取（全量替换） |
 | 编辑回显 | 拷贝字段即可 | 属性值数组要逐项深拷贝 |
+
+---
+
+# Part 11 · SPU 列表展示与三级分类公共组件抽取
+
+## 目标
+
+1. **组件抽取**：把 `AttrView.vue` 里的三级分类联动逻辑抽成公共组件 `src/components/CategorySelector.vue`，通过 `emit('change', c1, c2, c3)` 通知父组件（实战附录 A.6 的 props/emit 模式）。
+2. **SPU 列表页**：三级分类选齐 → 加载 SPU 分页列表，每行展示 spuName / description / 操作按钮（添加图片、编辑、删除）。
+3. 本 Part 只做**列表展示**，SPU 的增删改查留 Part 12。
+
+## 接口侦察
+
+SPU 列表接口路径靠穷举命中（swagger 不可用）：
+
+| 接口 | 方法/路径 | 说明 |
+|---|---|---|
+| SPU 分页列表 | `GET /admin/product/spu/list?page=&size=&category3Id=` | query 参数；返回 `PageResult<SpuItem>` |
+
+`SpuItem` 字段：`id` / `spuName` / `description` / `category3Id` / `tmId`。
+
+保存/修改接口（`/admin/product/saveSpuInfo`）探测到返回 205（服务端异常），留 Part 12 细探。
+
+## 操作过程
+
+1. 新建 `src/components/CategorySelector.vue`：把 AttrView 原有的三级联动逻辑（`c1/c2/c3` ref、`cat1List/cat2List/cat3List`、`loadCat1/onC1Change/onC2Change/onC3Change`、`onMounted(loadCat1)`）原样搬入；三处 `emit('change', ...)` 在选级变化时广播当前三级状态。
+2. 重构 `src/views/product/AttrView.vue`：删除全部三级联动代码（约 52 行），改引 `<CategorySelector @change="onCategoryChange" />`；`onCategoryChange` 回调接收三个参数同步到本地 ref，三级选齐才 `loadAttrs()`。
+3. 新建 `src/api/spu.ts`：`SpuItem` / `PageResult<T>` 类型 + `reqSpuList(page, size, category3Id)` 函数（query string 拼接）。
+4. 新建 `src/views/product/SpuView.vue`：复用 `<CategorySelector>`，`onCategoryChange` 只关心 `c3` 参数（SPU 列表只依赖三级分类 ID）；`el-table` + `el-pagination` 展示列表；添加/编辑/删除按钮先用 `ElMessage.info` 占位。
+5. `src/router/index.ts`：spu 路由从 `PlaceholderView.vue` 换成 `SpuView.vue`。
+
+## 原理与决策
+
+1. **为什么抽公共组件**：属性页和 SPU 页共享完全相同的三级联动逻辑（约 50 行），复制粘贴 = 改一处漏一处。抽出后逻辑只维护一份，父组件通过 `@change` 各自决定收到通知后做什么。
+2. **emit 参数设计**：三个参数 `(c1, c2, c3)` 全量传出，父组件按需取用（AttrView 三个都用，SpuView 只用 c3）。选级变化时未选的层级传 `undefined`，父组件据此判断"选齐没有"。
+3. **父子 c1/c2/c3 是两套独立数据**：子组件的 ref 是私有的，父组件拿不到；靠 emit 把值"抄"过来同步。这正是单向数据流：子不直接改父的数据，只广播事件。
+4. **`PageResult<T>` 泛型**：SPU 分页返回结构与品牌管理（Part 8）相同，抽成泛型后续 SKU/用户管理等分页接口复用。
+5. **SPU 操作按钮占位**：`onAdd/onEdit/onDelete` 只弹 info 提示——Part 12 才接真实接口，避免这 Part 信息量过载。
+
+## 踩坑记录
+
+- **SPU 接口路径难找**：swagger 远程不可用，穷举了近 30 个候选路径才命中 `/admin/product/spu/list?page=&size=&category3Id=`。规律：该后端 SPU 用 query 参数而非路径参数（与品牌管理的 `/baseTrademark/{page}/{limit}` 路径参数风格不同），同一项目内接口风格并不统一，每次都得实测。
 
 ---
 
@@ -896,6 +939,64 @@ function onClick() {
 ```
 
 要点：子组件**不直接改父的数据**，而是“通知”父组件，由父组件自己改——这就是单向数据流的意义：数据只从上往下流，修改源头可追溯。
+
+### 实战时序：CategorySelector 的 change 事件
+
+「子传父」在项目里最典型的一次落地是三级分类公共组件 `src/components/CategorySelector.vue`（属性页、SPU 页共用）。
+
+**第 1 步：子组件声明事件（相当于登记一个“广播频道”）**
+
+```ts
+const emit = defineEmits<{
+  change: [c1: number | undefined, c2: number | undefined, c3: number | undefined]
+}>()
+```
+
+`change` 是事件名，父组件将来用 `@change` 监听；元组类型规定事件携带 3 个参数，`number | undefined` 是因为可能只选到一级、二三级还没选。
+
+**第 2 步：状态一变就广播（三处 emit 对应三种“选到一半”）**
+
+```ts
+emit('change', val, undefined, undefined)   // 只选了一级
+emit('change', c1.value, val, undefined)    // 选到了二级
+emit('change', c1.value, c2.value, val)     // 三级选齐
+```
+
+**第 3 步：父组件登记监听并处理（AttrView.vue）**
+
+```vue
+<CategorySelector @change="onCategoryChange" />
+```
+
+```ts
+function onCategoryChange(c1Val, c2Val, c3Val) {
+  c1.value = c1Val              // 把真实值“抄”进父组件自己的 ref
+  if (c1Val && c2Val && c3Val) loadAttrs()  // 三级选齐才查属性列表
+  else attrs.value = []          // 没选齐就清空表格数据
+}
+```
+
+**完整时序**
+
+```text
+用户在子组件下拉框选了「手机」(id=2)
+        ↓
+子组件内部更新：c1.value = 2
+        ↓
+子组件广播：emit('change', 2, undefined, undefined)   ← 携带真实值
+        ↓
+Vue 查模板发现父组件监听了 @change
+        ↓
+自动调用 onCategoryChange(2, undefined, undefined)    ← 真实值按顺序注入参数
+        ↓
+父组件决定自己的行为：存下 3 个值 / 加载数据 / 清空数据
+```
+
+要点：
+
+1. **`change` 是“事件”不是“方法”**——子组件只是“喊一嗓子”：我这边变了，值都在参数里，谁在监听谁来处理；它不关心谁来处理、怎么处理。
+2. **父子的 `c1/c2/c3` 是两套独立数据**——子组件的三个 ref 是私有的，父组件拿不到，正是靠这个事件把值“抄”过来同步。
+3. 属性页拿到事件去查属性列表，SPU 页拿到同一个事件去查 SPU 分页——**同一个组件，每个父组件自己决定收到通知后干什么**，这就是抽公共组件的意义。
 
 ### v-model = props + emit 的语法糖
 

@@ -1,43 +1,27 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance } from 'element-plus'
-import {
-  reqCategory1, reqCategory2, reqCategory3,
-  reqAttrList, reqSaveAttr, reqDeleteAttr,
-} from '@/api/attr'
-import type { Category, Attr, AttrValue } from '@/api/attr'
+import { reqAttrList, reqSaveAttr, reqDeleteAttr } from '@/api/attr'
+import type { Attr, AttrValue } from '@/api/attr'
+import CategorySelector from '@/components/CategorySelector.vue'
 
-// ---- 分类级联 ----
+// ---- 分类状态（从公共组件 emit 回来） ----
 const c1 = ref<number>()
 const c2 = ref<number>()
 const c3 = ref<number>()
-const cat1List = ref<Category[]>([])
-const cat2List = ref<Category[]>([])
-const cat3List = ref<Category[]>([])
 
-async function loadCat1() {
-  cat1List.value = (await reqCategory1()).data
-}
-
-async function onC1Change(val: number) {
-  c2.value = undefined
-  c3.value = undefined
-  cat2List.value = []
-  cat3List.value = []
-  attrs.value = []
-  cat2List.value = (await reqCategory2(val)).data
-}
-
-async function onC2Change(val: number) {
-  c3.value = undefined
-  cat3List.value = []
-  attrs.value = []
-  cat3List.value = (await reqCategory3(val)).data
-}
-// 调用 loadAttrs() 去后端拉取属性列表，填到下方的表格里。
-async function onC3Change() {
-  loadAttrs()
+// 三级分类变化回调（子组件 emit 触发）
+function onCategoryChange(c1Val: number | undefined, c2Val: number | undefined, c3Val: number | undefined) {
+  c1.value = c1Val
+  c2.value = c2Val
+  c3.value = c3Val
+  // 三级都选了才加载属性，否则清空
+  if (c1Val && c2Val && c3Val) {
+    loadAttrs()
+  } else {
+    attrs.value = []
+  }
 }
 
 // ---- 属性表格 ----
@@ -133,49 +117,13 @@ async function onDelete(id: number) {
   loadAttrs()
 }
 
-onMounted(loadCat1)
+
 </script>
 
 <template>
   <el-card shadow="never">
-    <!-- 三级联动选择器 -->
-    <el-form inline style="margin-bottom: 16px">
-      <el-form-item label="一级分类">
-        <el-select
-          v-model="c1"
-          placeholder="请选择"
-          clearable
-          @change="onC1Change"
-          style="width: 180px"
-        >
-          <el-option v-for="c in cat1List" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="二级分类">
-        <el-select
-          v-model="c2"
-          placeholder="请选择"
-          clearable
-          :disabled="!c1"
-          @change="onC2Change"
-          style="width: 180px"
-        >
-          <el-option v-for="c in cat2List" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="三级分类">
-        <el-select
-          v-model="c3"
-          placeholder="请选择"
-          clearable
-          :disabled="!c2"
-          @change="onC3Change"
-          style="width: 180px"
-        >
-          <el-option v-for="c in cat3List" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-      </el-form-item>
-    </el-form>
+    <!-- 三级联动选择器（公共组件） -->
+    <CategorySelector @change="onCategoryChange" />
 
     <!-- 属性表格 -->
     <div class="table-header">
