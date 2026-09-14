@@ -39,3 +39,12 @@ export function reqAddOrUpdateTrademark(data: Trademark) {
 export function reqRemoveTrademark(id: number) {
   return request.delete<unknown, ResponseBody<null>>(`/admin/product/baseTrademark/remove/${id}`)
 }
+
+// 图片上传
+export function reqUploadImage(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  // ⚠️ 不要手写 Content-Type —— axios 检测到 FormData 会自动设并加 boundary
+  // 手写 'multipart/form-data' 会缺 boundary，后端收不到文件
+  return request.post<unknown, ResponseBody<string>>('/admin/product/fileUpload', formData)
+}

@@ -4,6 +4,9 @@ import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { reqTrademarkPage, reqAddOrUpdateTrademark, reqRemoveTrademark } from '@/api/trademark'
 import type { Trademark } from '@/api/trademark'
+import type { UploadRequestOptions } from 'element-plus'
+import { reqUploadImage } from '@/api/trademark' // 加到现有 import 行
+
 
 // ---- 列表数据 ----
 const tableData = ref<Trademark[]>([])
@@ -89,7 +92,30 @@ async function onDelete(id: number) {
 // ---- 工具：logoUrl 可能是相对路径，拼 baseURL 才能显示 ----
 function toFullUrl(url: string) {
   if (!url) return ''
-  return url.startsWith('http') ? url : `${import.meta.env.VITE_API_BASE_URL}${url}`
+  if (url.startsWith('http')) return url
+  // 后端返回的路径带 /api 前缀（如 /api/static/img/...），
+  // 但实际静态资源路径不带 /api，需要去掉
+  const cleanPath = url.startsWith('/api') ? url.slice(4) : url
+  return `${import.meta.env.VITE_API_BASE_URL}${cleanPath}`
+}
+
+// ---- 图片上传 ----
+function beforeUpload(file: File) {
+  const isImage = file.type.startsWith('image/')
+  const isLt5M = file.size / 1024 / 1024 < 5
+  if (!isImage) ElMessage.error('只能上传图片文件')
+  if (!isLt5M) ElMessage.error('图片大小不能超过 5MB')
+  return isImage && isLt5M
+}
+
+async function handleUpload(options: UploadRequestOptions) {
+  try {
+    const res = await reqUploadImage(options.file)
+    form.logoUrl = res.data // 相对路径，显示时由 toFullUrl 拼接
+    ElMessage.success('上传成功')
+  } catch {
+    ElMessage.error('上传失败，请稍后重试')
+  }
 }
 
 onMounted(loadList)
@@ -153,9 +179,23 @@ onMounted(loadList)
       <el-form-item label="品牌名称" prop="tmName">
         <el-input v-model="form.tmName" placeholder="请输入品牌名称" />
       </el-form-item>
-      <el-form-item label="LOGO URL" prop="logoUrl">
-        <el-input v-model="form.logoUrl" placeholder="https://... 或 /path/to/img.png" />
+      <el-form-item label="LOGO" prop="logoUrl">
+        <el-upload
+          :show-file-list="false"
+          :before-upload="beforeUpload"
+          :http-request="handleUpload"
+          accept="image/*"
+        >
+          <el-image
+            v-if="form.logoUrl"
+            :src="toFullUrl(form.logoUrl)"
+            fit="cover"
+            style="width: 148px; height: 148px; border-radius: 4px"
+          />
+          <el-icon v-else :size="30" color="#8c939d"><Plus /></el-icon>
+        </el-upload>
       </el-form-item>
+
     </el-form>
     <template #footer>
       <el-button @click="dialogVisible = false">取消</el-button>

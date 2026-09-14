@@ -16,7 +16,8 @@
 | 6 | 路由守卫与退出登录 | 2026-09-13 | ✅ 完成 |
 | 7 | 后台布局与动态菜单骨架 | 2026-09-13 | ✅ 完成 |
 | 8 | 品牌管理（第一个 CRUD 业务页） | 2026-09-13 | ✅ 完成 |
-| 9 | （待开始） | — | ⬜ |
+| 9 | 品牌 LOGO 图片上传 | 2026-09-14 | ✅ 完成 |
+| 10 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -387,6 +388,48 @@ app.mount('#app')
 ## 踩坑记录
 
 本 Part 一次通过，未踩坑。遇到的两个认知点已另记：模板字符串拼接口路径 → 附录 A.12；`#reference` 插槽语义 → 任务书/代码注释。
+
+---
+
+# Part 9 · 品牌 LOGO 图片上传
+
+## 目标
+
+1. 把品牌管理的 LOGO 字段从 el-input（手动填 URL）换成 **el-upload 真实图片上传**——了结 Part 8 留的尾巴。
+2. 上传成功自动回填 `form.logoUrl`，列表 LOGO 列显示上传后的图片。
+3. 学习 el-upload 自定义上传 + 单图预览模式。
+
+## 接口侦察
+
+沿用惯例，动手前先用探针脚本实测上传接口。五个候选路径中只有 `/admin/product/fileUpload` 返回 200 + 正确 body，其余全返回 `code: 209 "请求路径不存在"`：
+
+| 接口 | 方法/路径 | 请求体 | 返回 |
+|---|---|---|---|
+| 图片上传 | `POST /admin/product/fileUpload` | `multipart/form-data`，字段名 `file` | `data: "/api/static/img/sph/YYYYMMDD/文件名"` |
+
+**关键发现**：返回的 `data` 是带 `/api` 前缀的相对路径（如 `/api/static/img/sph/...`），但实际可访问的静态资源路径是 `/static/img/sph/...`（不带 `/api`）——这是图片加载失败的根本原因（详见踩坑记录）。
+
+## 操作过程
+
+1. `src/api/trademark.ts` 追加 `reqUploadImage(file)`：用 FormData 组装 multipart 请求，调 `request.post`，**不手写 Content-Type**（axios 检测到 FormData 会自动设并加 boundary）。
+2. `src/views/product/TrademarkView.vue`：
+   - 对话框里 `LOGO URL` 的 el-input 替换为 el-upload（`show-file-list=false`、`before-upload` 校验、`http-request` 自定义上传）。
+   - 上传区内有图时显示 `el-image` 预览，无图时显示 `<Plus />` 加号图标。
+   - `beforeUpload` 校验图片类型 + 5MB 限制。
+   - `handleUpload` 调 `reqUploadImage`，成功后把返回路径回填 `form.logoUrl`。
+   - **修复 `toFullUrl`**：自动去掉 `/api` 前缀（`/api/static/...` → `/static/...`），拼 baseURL 后才是可访问地址。
+
+## 原理与决策
+
+- **el-upload 自定义上传（`:http-request`）**：覆盖默认 axios 行为，走我们自己的 `request` 实例（自动带 token 头、统一错误处理）。`action` prop 传空即可——实际请求由回调函数发出。
+- **FormData + axios 不能手写 Content-Type**：axios 检测到 FormData 会自动加 `multipart/form-data; boundary=...`；手写会覆盖掉 `boundary`，后端收不到文件。
+- **单图预览模式**：`show-file-list=false` 不显示文件列表；触发元素里用 `v-if/v-else` 切换"已上传预览图"与"加号占位"。
+- **api 层聚合**：上传函数放在 `api/trademark.ts`，页面只调业务函数，不直接碰 `request` 实例。
+
+## 踩坑记录
+
+- **图片全部"加载失败"**：后端 logoUrl 存的是 `/api/static/img/...`，但静态文件实际挂在 `/static/img/...`（无 `/api` 前缀）。原 `toFullUrl` 直接拼 baseURL 得到的是不存在的路径，浏览器收到的是 JSON 错误 `code:209` 而非图片。修复：`toFullUrl` 检测到 `/api` 前缀自动去掉。这是"后端存的路径 ≠ 实际可访问路径"的典型坑。
+- **`handleUpload` 缺闭合 `}`**：粘贴代码时漏了函数右花括号，导致后续 `onMounted(loadList)` 被吞进函数体，Vite 解析 500。补上 `}` 后恢复。
 
 ---
 
