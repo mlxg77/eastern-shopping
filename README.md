@@ -17,7 +17,8 @@
 | 7 | 后台布局与动态菜单骨架 | 2026-09-13 | ✅ 完成 |
 | 8 | 品牌管理（第一个 CRUD 业务页） | 2026-09-13 | ✅ 完成 |
 | 9 | 品牌 LOGO 图片上传 | 2026-09-14 | ✅ 完成 |
-| 10 | （待开始） | — | ⬜ |
+| 10 | 平台属性管理（三级联动 + 嵌套 CRUD） | 2026-09-14 | ✅ 完成 |
+| 11 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -430,6 +431,63 @@ app.mount('#app')
 
 - **图片全部"加载失败"**：后端 logoUrl 存的是 `/api/static/img/...`，但静态文件实际挂在 `/static/img/...`（无 `/api` 前缀）。原 `toFullUrl` 直接拼 baseURL 得到的是不存在的路径，浏览器收到的是 JSON 错误 `code:209` 而非图片。修复：`toFullUrl` 检测到 `/api` 前缀自动去掉。这是"后端存的路径 ≠ 实际可访问路径"的典型坑。
 - **`handleUpload` 缺闭合 `}`**：粘贴代码时漏了函数右花括号，导致后续 `onMounted(loadList)` 被吞进函数体，Vite 解析 500。补上 `}` 后恢复。
+
+---
+
+# Part 10 · 平台属性管理（三级联动 + 嵌套 CRUD）
+
+## 目标
+
+1. **三级分类联动**：选一级 → 加载二级 → 选二级 → 加载三级 → 选三级 → 加载属性列表；切换上级时清空所有下级与表格。
+2. **嵌套 CRUD**：属性行内属性值用 `el-tag` 展示；对话框里属性值列表可动态增删（输入 + 回车/按钮添加）。
+3. **整存整取**：保存时一次性提交属性名 + 全部属性值（后端全量替换），这是与品牌管理（单表单）最大的差异。
+
+## 接口侦察
+
+这 Part 接口多，侦察花了四轮探针：
+
+| 接口 | 方法/路径 | 说明 |
+|---|---|---|
+| 一级分类 | `GET /admin/product/getCategory1` | `data: [{id, name}]` |
+| 二级分类 | `GET /admin/product/getCategory2/{c1id}` | 同上 |
+| 三级分类 | `GET /admin/product/getCategory3/{c2id}` | 同上 |
+| 属性列表 | `GET /admin/product/attrInfoList/{c1}/{c2}/{c3}` | **无分页**，一次全返回 |
+| 保存属性 | `POST /admin/product/saveAttrInfo` | `{categoryId, categoryLevel:3, attrName, attrValueList:[{valueName}]}` |
+| 删除属性 | `DELETE /admin/product/deleteAttr/{id}` | — |
+
+侦察中的弯路：属性列表接口试了 5 个候选路径才找到 `attrInfoList`；保存接口第一版探针带 `category1Id/2/3Id` 三字段返回 201，去掉冗余只留 `categoryId + categoryLevel` 后成功——**探针契约要最小化，多余字段反而干扰判断**。
+
+## 操作过程
+
+1. 新建 `src/api/attr.ts`：`Category` / `AttrValue` / `Attr` 三个接口类型 + 六个请求函数。
+2. 新建 `src/views/product/AttrView.vue`：三级联动（三个 `el-select`，`onC1Change` 清空 2/3 级 + 表格、`onC2Change` 清空 3 级 + 表格）→ 属性表格（`el-tag` 列属性值）→ 对话框（属性名 + 属性值动态列表）→ 删除二次确认。
+3. 路由 `product/attr` 从占位页换成 `AttrView.vue`。
+
+## 原理与决策
+
+- **级联清空顺序**：`onC1Change` 里先 `c2/c3 = undefined`、`cat2List/cat3List/attrs = []` 再请求二级——切上级时下级数据"跟着失效"，不清空会显示与所选不符的旧数据。
+- **深拷贝属性值**：`onEdit` 里 `row.attrValueList.map(v => ({...v}))`——直接引用 row 的话，在对话框里改输入框会**实时污染表格里的原数据**（取消也回不去）。
+- **整存整取**：保存请求体永远带完整 `attrValueList`，新增的值没有 id，编辑保留的值有 id，后端全量覆盖。前端不做"逐个增删"的 diff。
+- **`attrValues` 独立 ref 指向 `form.attrValueList` 同一数组**：模板 `v-for="(v, idx) in attrValues"` 绑定更直观，`v.valueName` 的 v-model 直接改的就是 form 里的对象。
+- **未选三级时"添加属性"禁用**（`:disabled="!c3"`）：属性挂在三级分类上，没有 c3 就没有 `categoryId` 可提交。
+- **校验双保险**：el-form rules 管 `attrName` 非空；`attrValues.length === 0` 手动拦截（rules 管不到数组长度）。
+
+## 踩坑记录
+
+本 Part 功能一次跑通（联动/CRUD/校验全过），但有一个值得展开的认知点：
+
+- **普通 `<script>` 块 import 的图标能否被模板使用**：`AttrView.vue` 底部有个普通 `<script lang="ts">` 块（`import { Delete } from '@element-plus/icons-vue'`），模板里 `:icon="Delete"` 引用它。直觉上可疑（import 不在 `<script setup>` 里），但 lint/type-check/build 全过。用 `@vue/compiler-sfc` 编译产物验证：模板里的 `Delete` 被编译为**模块作用域的直接引用**（而非 `_ctx.Delete`）——普通 script 的 import 会纳入绑定分析，render 函数通过闭包访问。结论：**共存 script 的 import 对模板可见**，但要省心还是优先写进 `<script setup>`（绝大多数场景的标准做法）。
+- **`:icon="Delete"` 需要组件对象而非字符串**：与 Part 7 菜单的 `<component :is="item.icon">`（字符串走全局注册）是两条路——`:icon` prop 收的是组件对象引用，必须 import；字符串只在全局注册 + 动态组件场景下生效。
+
+## 与品牌管理（Part 8）的模子差异
+
+| 维度 | 品牌管理 | 平台属性 |
+|---|---|---|
+| 列表 | 分页（page/limit） | 无分页（三级分类确定后全量） |
+| 入口 | 直接进页面就能看 | 必须先选完三级分类 |
+| 表单字段 | 扁平（tmName/logoUrl） | 嵌套（attrName + attrValueList 数组） |
+| 保存 | 单条记录字段 | 属性值整存整取（全量替换） |
+| 编辑回显 | 拷贝字段即可 | 属性值数组要逐项深拷贝 |
 
 ---
 
