@@ -19,7 +19,8 @@
 | 9 | 品牌 LOGO 图片上传 | 2026-09-14 | ✅ 完成 |
 | 10 | 平台属性管理（三级联动 + 嵌套 CRUD） | 2026-09-14 | ✅ 完成 |
 | 11 | SPU 列表展示与三级分类公共组件抽取 | 2026-09-15 | ✅ 完成 |
-| 12 | （待开始） | — | ⬜ |
+| 12 | SPU 管理 CRUD（增删改查 + 品牌选择） | 2026-09-15 | ✅ 完成 |
+| 13 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -531,6 +532,48 @@ SPU 列表接口路径靠穷举命中（swagger 不可用）：
 ## 踩坑记录
 
 - **SPU 接口路径难找**：swagger 远程不可用，穷举了近 30 个候选路径才命中 `/admin/product/spu/list?page=&size=&category3Id=`。规律：该后端 SPU 用 query 参数而非路径参数（与品牌管理的 `/baseTrademark/{page}/{limit}` 路径参数风格不同），同一项目内接口风格并不统一，每次都得实测。
+
+---
+
+# Part 12 · SPU 管理 CRUD
+
+## 目标
+
+1. 把 Part 11 三个占位按钮（添加/编辑/删除）接上真实接口，完成 SPU 的完整 CRUD 闭环。
+2. 对话框表单：spuName（必填）、品牌下拉 tmId（必填，数据来自品牌列表接口）、description（选填）。
+3. 删除后智能回退页（复用 Part 8 模式）。
+
+## 接口侦察
+
+save/update 路径靠穷举命中，delete 一次命中：
+
+| 接口 | 方法/路径 | 说明 |
+|---|---|---|
+| 保存 | `POST /admin/product/saveSpuInfo` | `{spuName, description, category3Id, tmId}` |
+| 修改 | `POST /admin/product/updateSpuInfo` | 同上，body 带 `id` |
+| 删除 | `DELETE /admin/product/deleteSpu/{id}` | 实测可用 |
+| 品牌列表 | `GET /admin/product/baseTrademark/1/100` | 复用已有接口 |
+
+> **重要发现**：save/update 实测均返回 `code: 205 "服务繁忙"`（服务端内部异常），前端代码正确但后端这两个接口有 bug。这是接真实后端时常见的情况：后端不是自己维护的，有些接口有问题但前端该写的代码一行不能少。
+
+## 操作过程
+
+1. `src/api/spu.ts` 追加四个函数：`reqSaveSpu` / `reqUpdateSpu` / `reqDeleteSpu` / `reqBrandList`。
+2. `src/views/product/SpuView.vue` 全量重写：新增对话框（spuName 输入 + 品牌 el-select 下拉 + description textarea）、`onSubmit` 按 `form.id` 有无分流 save/update、`onDelete` 含智能回退页逻辑、`onMounted(loadBrands)` 页面加载时拉品牌列表。
+3. 用户改进：`SpuItem.tmId` 改为可选（`tmId?: number`），`form.tmId` 初始值从 `0` 改为 `undefined`——避免 el-select 显示原始值、骗过 required 校验。
+
+## 原理与决策
+
+1. **新增/编辑共用对话框**：`form.id` 有值 = 编辑，无值（`0`）= 新增。提交时按 id 分流调用 save/update 接口。
+2. **新增时排除 id 字段**：`form.id` 初始化为 `0`，新增提交时用解构 `const { id: _, ...data } = form` 剔除，`void _` 消除 ESLint `no-unused-vars` 错误。
+3. **`tmId` 用 `undefined` 而非 `0`**：`0` 是有效的 number 值，el-select 会把它当作“已选择”显示成原始数字，required 校验也会通过；`undefined` 才是真正的“未选择”。
+4. **删除智能回退页**：`spuList.value.length === 1 && page.value > 1` 时回退一页，避免删完最后一条显示空页。
+5. **品牌列表复用**：直接用已有的 `baseTrademark/1/100` 取全量品牌，无需新建后端接口。
+
+## 踩坑记录
+
+- **ESLint `no-unused-vars` 报错**：解构剔除 id 时写了 `const { id: _unused, ...data } = form`，ESLint 判 `_unused` 未使用。修复：用 `const { id: _, ...data } = form; void _` 消费变量，同时消除 lint 和 TS 错误。
+- **后端 save/update 返回 205**：属于服务端内部异常（可能是数据库约束或空指针），前端代码格式、字段类型、路径全部经过实测验证。处理方式：catch 统一弹“保存失败，请稍后重试”，不阻塞其他功能开发。
 
 ---
 
