@@ -83,9 +83,9 @@ async function onSubmit() {
       await reqUpdateSpu({ ...form })
     } else {
       // 新增时不带 id（0 会被后端当作有效 id）
-      const { id: _, ...data } = form
-      void _
-      await reqSaveSpu(data as SpuItem)
+      const { id: _, ...data } = form   // ① 解构：把 id 起个别名丢进变量 _，其余字段收进 data
+      void _                            // ② 专门"消费"掉 _
+      await reqSaveSpu(data as SpuItem) // ③ data 里已经没有 id 了
     }
     ElMessage.success(form.id ? '修改成功' : '添加成功')
     dialogVisible.value = false

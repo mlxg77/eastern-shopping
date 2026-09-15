@@ -20,7 +20,8 @@
 | 10 | 平台属性管理（三级联动 + 嵌套 CRUD） | 2026-09-14 | ✅ 完成 |
 | 11 | SPU 列表展示与三级分类公共组件抽取 | 2026-09-15 | ✅ 完成 |
 | 12 | SPU 管理 CRUD（增删改查 + 品牌选择） | 2026-09-15 | ✅ 完成 |
-| 13 | （待开始） | — | ⬜ |
+| 13 | SKU 管理（笛卡尔积生成 + SPU 子资源联动） | 2026-09-15 | ✅ 完成 |
+| 14 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -574,6 +575,50 @@ save/update 路径靠穷举命中，delete 一次命中：
 
 - **ESLint `no-unused-vars` 报错**：解构剔除 id 时写了 `const { id: _unused, ...data } = form`，ESLint 判 `_unused` 未使用。修复：用 `const { id: _, ...data } = form; void _` 消费变量，同时消除 lint 和 TS 错误。
 - **后端 save/update 返回 205**：属于服务端内部异常（可能是数据库约束或空指针），前端代码格式、字段类型、路径全部经过实测验证。处理方式：catch 统一弹“保存失败，请稍后重试”，不阻塞其他功能开发。
+
+---
+
+# Part 13 · SKU 管理（笛卡尔积生成 + SPU 子资源联动）
+
+## 目标
+
+1. **选 SPU 入口**：三级分类选齐 → 加载该分类下 SPU 列表 → 下拉选一个 SPU。
+2. **SPU 子资源展示**：选中 SPU 后并行拉取销售属性（tag 展示）和图片列表（缩略图 + 预览）。
+3. **SKU 列表 + 删除**：分页表格展示该 SPU 下所有 SKU，删除带二次确认和智能回退页。
+4. **添加 SKU**：按销售属性笛卡尔积生成草稿行（预填 skuName / 默认图），填价格后逐条提交。
+
+## 接口侦察
+
+穷举命中四个接口，SKU 列表用路径参数 + query 混合：
+
+| 接口 | 方法/路径 | 说明 |
+|---|---|---|
+| SKU 分页列表 | `GET /admin/product/list/{page}/{limit}?spuId=` | 空库时返回空 records |
+| SPU 销售属性 | `GET /admin/product/spuSaleAttrList/{spuId}` | `[{id, baseSaleAttrId, saleAttrName, spuSaleAttrValueList}]` |
+| SPU 图片列表 | `GET /admin/product/spuImageList/{spuId}` | `[{id, imgName, imgUrl}]` |
+| 基础销售属性 | `GET /admin/product/baseSaleAttrList` | `[{id, name}]`（颜色/版本/尺码） |
+| 保存 SKU | `POST /admin/product/saveSkuInfo` | 字符串契约（见下） |
+| 删除 SKU | `DELETE /admin/product/deleteSku/{id}` | 实测可用 |
+
+## 操作过程
+
+1. 新建 `src/api/sku.ts`：`SkuItem` / `SaveSkuPayload` / `SpuSaleAttr` / `SpuImage` 类型 + 六个请求函数。
+2. 新建 `src/views/product/SkuView.vue`（350 行，项目最大页面）：三级分类 + SPU 下拉两层联动、`Promise.all` 并行拉销售属性和图片、笛卡尔积生成草稿、逐条提交。
+3. `src/router/index.ts`：sku 路由从占位页换成 `SkuView.vue`。
+
+## 原理与决策
+
+1. **笛卡尔积工具函数**：`reduce + flatMap` 两层展开——两个属性各 N/M 个值就生成 N×M 行草稿，每行预拼 skuName（如“vivo 蓝色 128G”）。
+2. **`Promise.all` 并行加载**：销售属性和图片互不依赖，并行请求省一半等待时间。
+3. **价格单位是分**：后端存分（999 = ¥9.99），列表展示时 `/100` 格式化。
+4. **`SpuSaleAttr.id` 是 string**：后端以字符串返回雪花 ID（防 JS 大数精度丢失），保存 SKU 时原样透传给 `saleAttrId`。
+5. **草稿结构分层**：页面私有 `SkuDraft`（编辑态）与后端契约 `SaveSkuPayload`（提交态）分离，提交时才映射——避免编辑结构被后端契约绑架。
+
+## 踩坑记录
+
+- **saveSkuInfo 的 205 真相（本 Part 最大收获）**：初探时按任务书 number 类型提交返回 205“服务繁忙”，一度当成后端 bug。实际是**契约格式问题**：Go 后端用 `strconv` 按字符串解析数字字段，JSON number 会被读成空串 → 解析失败 → 205。修复：`price/spuID/category3Id/tmId/weight` 全部 `String()` 转字符串，`spuID` 键名大写 ID，`saleAttrId` 用销售属性 id 而非 `baseSaleAttrId`，`skuImageList` 每项带 `spuImgId`。修复后实测落库成功（库里现有一条“华为 银色”）。
+- **`skuDefaultImg` 为空触发 205**：无图片的 SPU 生成草稿会在提交时炸，`generateDrafts` 里前置拦截并提示“请先在 SPU 管理中上传图片”。
+- **Part 12 的 SPU 205 很可能是同根因**：SPU 保存时也传了 number，若按同样的字符串契约修正，`saveSpuInfo/updateSpuInfo` 有望也跑通（待后续验证）。
 
 ---
 
