@@ -48,8 +48,9 @@ export interface PageResult<T> {
 }
 
 export function reqSpuList(page: number, size: number, category3Id: number) {
+  // API.md 12.1 规范路径：分页走路径参数（旧路径 /spu/list 仍兼容，勿再用）
   return request.get<unknown, ResponseBody<PageResult<SpuItem>>>(
-    `/admin/product/spu/list?page=${page}&size=${size}&category3Id=${category3Id}`
+    `/admin/product/${page}/${size}?category3Id=${category3Id}`
   )
 }
 
@@ -68,10 +69,10 @@ export function reqDeleteSpu(id: number) {
   return request.delete<unknown, ResponseBody<null>>(`/admin/product/deleteSpu/${id}`)
 }
 
-// 品牌列表（复用已有接口，取第一页 100 条当全量）
+// 品牌全量列表（API.md 9.5，不分页；旧实现用分页接口取前 100 条当全量，品牌超 100 会丢）
 export function reqBrandList() {
-  return request.get<unknown, ResponseBody<PageResult<{ id: number; tmName: string }>>>(
-    '/admin/product/baseTrademark/1/100'
+  return request.get<unknown, ResponseBody<{ id: number; tmName: string }[]>>(
+    '/admin/product/baseTrademark/getTrademarkList'
   )
 }
 

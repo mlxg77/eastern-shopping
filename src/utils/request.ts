@@ -20,6 +20,18 @@ request.interceptors.response.use(
   (response) => {
     const body = response.data
     // 后端约定：HTTP 恒 200，业务成败看 body.code
+    // 206 = Token 无效、207 = 未登录（实测确认）：清登录态回登录页
+    if (body.code === 206 || body.code === 207) {
+      // 仅在本地还存有 token 时处理，避免并发请求同时失败时重复跳转
+      if (localStorage.getItem('token')) {
+        localStorage.removeItem('token')
+        ElMessage.warning('登录已过期，请重新登录')
+        // 用整页跳转而非 router.push：Pinia 的 token 已在内存里，
+        // 只清 localStorage 同步不到 store，整页刷新让应用重新初始化最干净
+        window.location.href = '/login'
+      }
+      return Promise.reject(new Error(body.message))
+    }
     if (body.code !== 200) {
       ElMessage.error(body.message || '请求失败')
       return Promise.reject(new Error(body.message))

@@ -37,8 +37,9 @@ async function loadList() {
 const brandList = ref<{ id: number; tmName: string }[]>([])
 
 async function loadBrands() {
+  // getTrademarkList 返回全量数组（非分页结构），没有 records 包裹
   const res = await reqBrandList()
-  brandList.value = res.data.records ?? []
+  brandList.value = res.data ?? []
 }
 
 // ---- 基础销售属性字典（颜色/版本/尺码…） ----

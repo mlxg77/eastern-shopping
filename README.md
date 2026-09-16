@@ -24,6 +24,7 @@
 | 14 | 用户管理（ACL 三件套之一：搜索 + CRUD + 分配角色抽屉） | 2026-09-16 | ✅ 完成 |
 | 15 | 角色管理（ACL 三件套之二：权限树分配 + el-tree） | 2026-09-16 | ✅ 完成 |
 | 16 | 菜单管理 + 动态路由（ACL 三件套之三：权限体系收官） | 2026-09-16 | ✅ 完成 |
+| 17 | API 文档对照审查与契约修正（46 接口全量体检） | 2026-09-16 | ✅ 完成 |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -898,6 +899,57 @@ id=1, pid=0, name="全部数据", code="", type=1, level=1
 1. **Pinia 4 类型推断对声明顺序敏感**：`ref` state 必须声明在所有 `function` action 之前，否则 Pinia 4 的 defineStore 推断出的 Store 类型会漏掉后面声明的 state。原写法 `token → userInfo → login() → userRoutes → userButtons` 导致 `userStore.userRoutes` 类型不存在；重排为 `state 块在前、actions 块在后` 修复。
 2. **api/acl.ts 的 MenuNode 缺 code 字段**：Part 15 定义的 MenuNode 只有 id/name/pid/type/level/select/children，Part 16 菜单管理需要 code 字段。读工具返回了缓存版本（有 code），但磁盘文件没有，导致 vue-tsc 报 `Property 'code' does not exist`。用 Bash 直接看磁盘确认后用 node 脚本加字段修复。
 3. **占位路由缺失导致白屏**：menu.ts 配了订单/客户/优惠菜单路径，但 router 里没注册这些路由——点击子菜单跳转到不存在的路径，Vue Router 匹配不到组件渲染空白。加 5 条占位路由指向 PlaceholderView 修复。
+
+---
+
+# Part 17 · API 文档对照审查与契约修正（46 接口全量体检）
+
+## 目标
+
+后端交付了正式接口文档 `API.md`（46 个接口）。本 Part 把它与前端 6 个 api 封装文件（user / trademark / attr / spu / sku / acl）逐条对照，不一致的地方**连线上后端实测裁决**，然后双向修正：文档错改文档，前端错改前端。
+
+## 操作过程
+
+1. **静态对照**：46 接口 vs 前端封装逐一比对——42 个已对接且契约一致，4 个未对接（batchRemove 批量删用户、getTrademarkList、findBySpuId、getSkuInfo）。
+2. **动态实测**：写临时 PowerShell 脚本连线上后端（159.75.82.153:10086），只做登录 + 只读 GET，**不碰任何写接口**。存疑点全部裁决：鉴权错误码（无 Token→207 / 伪造 Token→206 / 未知路径→209）、SPU 双路由、SKU 列表 spuId 过滤、菜单树 type/level 分布（63 节点全量拉取）。
+3. **修正落地**：API.md 修 5 处（待后端确认）、前端修 3 处；lint / type-check / build 三验证全过。
+
+## 原理与决策
+
+### API.md 修正 5 处（均带实测证据）
+
+| # | 位置 | 原文 | 修正 | 证据 |
+|---|---|---|---|---|
+| 1 | §7.1/7.2 菜单 type 枚举 | `1 目录，2 菜单，3 功能` | `1 路由节点，2 功能按钮；无 type=3` | 线上 63 节点：L1~L3 全 type=1，L4 全 type=2 |
+| 2 | §13.5 SKU 列表 | 参数表无 spuId | 补 Query 可选参数 spuId | `list/1/100?spuId=` 过滤生效（distinct 单一 SPU） |
+| 3 | §13.5 响应说明 | “records 元素为 13.6 详情结构” | 补“嵌套列表恒为 null，完整数据走 13.6” | 列表实测三个嵌套数组全 null，详情接口才有数据 |
+| 4 | §12.1 SPU 列表 | 只写路径参数风格 | 补兼容旧路由 `/spu/list` 的注记 | 两条路由并存，返回一致（total=4 同数据） |
+| 5 | §5.2 用户列表 | 缺 updateTime | 补字段 | 实测返回体含 updateTime |
+
+### 前端修正 3 处
+
+1. **reqSpuList 切规范路径**：`/admin/product/spu/list?page=&size=`（Part 11 穷举命中的旧路由）→ `/admin/product/${page}/${size}?category3Id=`（API.md 12.1）。函数签名不变，两个调用点零改动。
+2. **reqBrandList 换全量接口**：`baseTrademark/1/100` 取前 100 条当全量（品牌超 100 会丢）→ `getTrademarkList`。消费处同步把 `res.data.records` 改为 `res.data`（非分页结构无 records 包裹）。
+3. **拦截器补 206/207 登录态失效处理**：实测确认 206/207 语义后，在响应拦截器里清 localStorage + 整页跳 `/login`。两个关键决策：
+   - **用 `window.location.href` 而非 `router.push`**：Pinia 的 token ref 已在内存，只清 localStorage 同步不到 store，`router.push` 后守卫看内存 token 仍是“已登录”；整页刷新让应用重新初始化，守卫自然接管。
+   - **仅本地存有 token 时才跳**：并发多请求同时 206 时，第一个清掉 localStorage，后续请求看到已无 token 不再重复跳转。
+
+### 雪花 ID 精度维持现状
+
+实测当前所有 ID ≤14 位（如 9307386580096），远小于 2^53≈9×10^15（16 位），且均为 JSON 数字。**暂不引入 json-bigint**，保持观察；若将来出现 19 位 ID 再上。
+
+### 未对接 4 接口的定性
+
+- `batchRemove`：功能缺口（UserView 无多选框），用到再补。
+- `findBySpuId`：前端用 `list?spuId=` 等价实现，功能无缺，**不补**。
+- `getSkuInfo`：SKU 详情 UI 未做（按钮权限 btn.Sku.detail 已预留），属后续功能。
+
+## 踩坑记录
+
+1. **文档不能全信，用数据说话**：API.md 声称菜单 type 是“1 目录/2 菜单/3 功能”，但拉它自家线上菜单树发现根本不存在 type=3——路由与按钮之分实际由 level 决定。若按文档枚举写死映射表就会踩坑。文档是“声称”，线上行为才是“事实”，存疑点必须实测裁决。
+2. **同一后端双路由并存**：Part 11 穷举命中的 `/spu/list` 与 API.md 的 `/{page}/{limit}` 同时活着且返回一致——历史版本路由未下线。对接时优先文档规范路径，但排查问题时要想到“前端调的路由 ≠ 文档写的路由”的可能。
+3. **连 404 都是 JSON**：未知路径也返回 HTTP 200 + `code=209` 的 JSON body（gin 框架统一响应中间件接管了 404）。这意味着前端 axios 的 error 分支（HTTP 层错误）几乎永远不会因业务路径错误触发，全部走 `body.code` 分支——错误处理只需聚焦一处。
+4. **PowerShell 5.1 的 Invoke-WebRequest 解析陷阱**：`Invoke-RestMethod` 解析正常 JSON 时偶发字段读出为空（getSkuInfo 首次测显示 code 为空），用 `Invoke-WebRequest` 看原始字符串才确认响应正常。验证接口契约时看**原始响应体**比看解析后的对象更可靠。
 
 ---
 
