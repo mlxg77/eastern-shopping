@@ -19,7 +19,7 @@
 | 9 | 品牌 LOGO 图片上传 | 2026-09-14 | ✅ 完成 |
 | 10 | 平台属性管理（三级联动 + 嵌套 CRUD） | 2026-09-14 | ✅ 完成 |
 | 11 | SPU 列表展示与三级分类公共组件抽取 | 2026-09-15 | ✅ 完成 |
-| 12 | SPU 管理 CRUD（增删改查 + 品牌选择） | 2026-09-15 | ✅ 完成 |
+| 12 | SPU 管理 CRUD（完整表单与 205 契约破案） | 2026-09-16 | ✅ 完成 |
 | 13 | SKU 管理（笛卡尔积生成 + SPU 子资源联动） | 2026-09-15 | ✅ 完成 |
 | 14 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
@@ -536,12 +536,14 @@ SPU 列表接口路径靠穷举命中（swagger 不可用）：
 
 ---
 
-# Part 12 · SPU 管理 CRUD
+# Part 12 · SPU 管理 CRUD（完整表单与 205 契约破案）
+
+> 本 Part 分两阶段：09-15 先做基础 CRUD（save/update 报 205，当时误记为后端 bug）；09-16 借 swagger 文档 + 实测矩阵破解 205 真相，表单升级为完整版。本节按最终结论重写。
 
 ## 目标
 
 1. 把 Part 11 三个占位按钮（添加/编辑/删除）接上真实接口，完成 SPU 的完整 CRUD 闭环。
-2. 对话框表单：spuName（必填）、品牌下拉 tmId（必填，数据来自品牌列表接口）、description（选填）。
+2. 对话框表单完整版：spuName（必填）、品牌下拉 tmId（必填）、description（选填）、**图片上传区（至少 1 张）**、**销售属性编辑区（至少 1 个属性且带值）**。
 3. 删除后智能回退页（复用 Part 8 模式）。
 
 ## 接口侦察
@@ -550,31 +552,67 @@ save/update 路径靠穷举命中，delete 一次命中：
 
 | 接口 | 方法/路径 | 说明 |
 |---|---|---|
-| 保存 | `POST /admin/product/saveSpuInfo` | `{spuName, description, category3Id, tmId}` |
-| 修改 | `POST /admin/product/updateSpuInfo` | 同上，body 带 `id` |
+| 保存 | `POST /admin/product/saveSpuInfo` | 契约见下方破案记录 |
+| 修改 | `POST /admin/product/updateSpuInfo` | 在保存契约之上再加一层要求 |
 | 删除 | `DELETE /admin/product/deleteSpu/{id}` | 实测可用 |
 | 品牌列表 | `GET /admin/product/baseTrademark/1/100` | 复用已有接口 |
+| 基础销售属性 | `GET /admin/product/baseSaleAttrList` | 颜色/版本/尺码字典 |
+| SPU 图片列表 | `GET /admin/product/spuImageList/{spuId}` | 编辑回显用 |
+| SPU 销售属性 | `GET /admin/product/spuSaleAttrList/{spuId}` | 编辑回显用 |
 
-> **重要发现**：save/update 实测均返回 `code: 205 "服务繁忙"`（服务端内部异常），前端代码正确但后端这两个接口有 bug。这是接真实后端时常见的情况：后端不是自己维护的，有些接口有问题但前端该写的代码一行不能少。
+## 205 破案记录（本 Part 最大收获）
+
+第一阶段 save/update 实测均返回 `code: 205 "服务繁忙"`，当时记为"服务端内部异常，前端无解"。第二阶段推翻了这个结论——真相是**请求体契约不完整**。
+
+实测矩阵（创建后即删，不污染数据）：
+
+| 请求体 | 结果 |
+|---|---|
+| 裸 body（只有 spuName/description/category3Id/tmId） | ❌ 205 |
+| + 两个空数组 `spuImageList:[], spuSaleAttrList:[]` | ❌ 205 |
+| + 仅图片 1 张 | ❌ 205 |
+| + 仅销售属性 1 个（含值） | ❌ 205 |
+| + 图片 1 张 + 销售属性 1 个（含值） | ✅ 200 落库 |
+
+**save 契约**：`spuImageList` 与 `spuSaleAttrList` 必须双双非空，只带其一照样 205。与 `saveAttrInfo` 要求非空 `attrValueList`（Part 10）是同一类坑。
+
+**update 契约**还叠了第三层：每个销售属性必须带**非空的** `spuSaleAttrValueList`——
+
+| update 请求体来源 | 结果 |
+|---|---|
+| 列表接口返回的数据原样回传 | ❌ 205（列表里两个子数组是 null） |
+| `spuSaleAttrList/{id}` 接口拉回的数据 | ❌ 205（拉回的值列表是 null） |
+| 手工组装完整嵌套结构（含值列表） | ✅ 200 |
+
+**后端半残行为**：无论 save 还是 update，提交的销售属性值都不落库（拉回恒为 null；update 是先删后插重建属性子表，属性 id 会变，值还是不插）。预置数据（华为 SPU 的蓝/黑两色）是直接灌库的。后果：前端新建的 SPU 在 SKU 添加表单里拉不到属性值、生成不了笛卡尔积——前端无解，属后端缺陷。图片倒是正常落库可拉回。
 
 ## 操作过程
 
-1. `src/api/spu.ts` 追加四个函数：`reqSaveSpu` / `reqUpdateSpu` / `reqDeleteSpu` / `reqBrandList`。
-2. `src/views/product/SpuView.vue` 全量重写：新增对话框（spuName 输入 + 品牌 el-select 下拉 + description textarea）、`onSubmit` 按 `form.id` 有无分流 save/update、`onDelete` 含智能回退页逻辑、`onMounted(loadBrands)` 页面加载时拉品牌列表。
-3. 用户改进：`SpuItem.tmId` 改为可选（`tmId?: number`），`form.tmId` 初始值从 `0` 改为 `undefined`——避免 el-select 显示原始值、骗过 required 校验。
+第一阶段（09-15）：
+1. `src/api/spu.ts` 追加 `reqSaveSpu` / `reqUpdateSpu` / `reqDeleteSpu` / `reqBrandList`。
+2. `SpuView.vue` 基础版：三字段表单（spuName/品牌/描述）、按 id 分流提交、智能回退页。
+3. 用户改进：`SpuItem.tmId` 改可选，`form.tmId` 用 `undefined` 代替 `0`。
+
+第二阶段（09-16，破案后表单升级）：
+4. `api/spu.ts` 新增提交契约类型 `SpuImage` / `SpuSaleAttrValue` / `SpuSaleAttr` / `SaveSpuPayload` + `reqBaseSaleAttrList`；save/update 函数参数换为 `SaveSpuPayload`。
+5. `SpuView.vue` 表单升级（186 → 302 行）：图片上传区（复用 Part 9 自定义上传模式）、销售属性编辑区（基础属性下拉 + 回车加值，Part 10 属性值模子的变体）、提交前三条前置拦截、编辑回显 `Promise.all` 并行拉两个子资源接口拼装。
+6. 端到端实测：与新表单 payload 完全同构的探针走 save → update → delete 全 200，探测数据已清理。
 
 ## 原理与决策
 
-1. **新增/编辑共用对话框**：`form.id` 有值 = 编辑，无值（`0`）= 新增。提交时按 id 分流调用 save/update 接口。
-2. **新增时排除 id 字段**：`form.id` 初始化为 `0`，新增提交时用解构 `const { id: _, ...data } = form` 剔除，`void _` 消除 ESLint `no-unused-vars` 错误。
-3. **`tmId` 用 `undefined` 而非 `0`**：`0` 是有效的 number 值，el-select 会把它当作“已选择”显示成原始数字，required 校验也会通过；`undefined` 才是真正的“未选择”。
-4. **删除智能回退页**：`spuList.value.length === 1 && page.value > 1` 时回退一页，避免删完最后一条显示空页。
-5. **品牌列表复用**：直接用已有的 `baseTrademark/1/100` 取全量品牌，无需新建后端接口。
+1. **新增/编辑共用对话框**：`form.id` 有值 = 编辑，无值 = 新增，提交时按 id 分流。
+2. **新增时排除 id 字段**：`const { id: _, ...data } = form; void _` 剔除 id 并消费变量。
+3. **`tmId` 用 `undefined` 而非 `0`**：`0` 会被 el-select 当作已选择、骗过 required 校验。
+4. **前置拦截优先于提交**：三条拦截（无图/无属性/属性无值）把后端 205 翻译成用户能懂的提示，避免发了请求才收到"服务繁忙"。
+5. **编辑回显不信任列表数据**：列表接口的子数组是 null，编辑时必须现拉 `spuImageList` + `spuSaleAttrList` 拼装；拉回值列表为 null 时置空数组让用户重填（后端不落值的缺陷，前端补不了）。
+6. **提交前显式映射**：表单状态直接按 `SaveSpuPayload` 契约 shape 定义，但提交时仍 `.map()` 一遍白名单字段，防止未来表单加字段时把 UI 态漏进请求体。
+7. **删除智能回退页**：同 Part 8。
 
 ## 踩坑记录
 
-- **ESLint `no-unused-vars` 报错**：解构剔除 id 时写了 `const { id: _unused, ...data } = form`，ESLint 判 `_unused` 未使用。修复：用 `const { id: _, ...data } = form; void _` 消费变量，同时消除 lint 和 TS 错误。
-- **后端 save/update 返回 205**：属于服务端内部异常（可能是数据库约束或空指针），前端代码格式、字段类型、路径全部经过实测验证。处理方式：catch 统一弹“保存失败，请稍后重试”，不阻塞其他功能开发。
+- **ESLint `no-unused-vars`**：`const { id: _unused, ...data } = form` 被判未使用，改 `const { id: _, ...data }; void _` 消费。
+- **TS 严格索引检查**：`form.spuSaleAttrList[attrIdx].xxx` 按下标取值可能为 undefined，函数入口 `const attr = ...; if (!attr) return` 收窄。
+- **"205 = 后端 bug"的误判持续了两天**：教训一：**业务码错误先做请求体组合的实测矩阵，再下结论**，本案正是靠矩阵（仅图/仅属性/双全）锁定非空约束的。教训二：**swagger 的 required 列表为空 ≠ 字段可缺省**——这种隐性非空约束文档查不出来，只能实测。教训三（反向）：文档字段定义里挂着 `spuImageList`/`spuSaleAttrList`，保存时却只传基础字段，这本身就是可疑信号，契约应该以"文档字段全集 + 实测验证"为准。
 
 ---
 
@@ -618,7 +656,7 @@ save/update 路径靠穷举命中，delete 一次命中：
 
 - **saveSkuInfo 的 205 真相（本 Part 最大收获）**：初探时按任务书 number 类型提交返回 205“服务繁忙”，一度当成后端 bug。实际是**契约格式问题**：Go 后端用 `strconv` 按字符串解析数字字段，JSON number 会被读成空串 → 解析失败 → 205。修复：`price/spuID/category3Id/tmId/weight` 全部 `String()` 转字符串，`spuID` 键名大写 ID，`saleAttrId` 用销售属性 id 而非 `baseSaleAttrId`，`skuImageList` 每项带 `spuImgId`。修复后实测落库成功（库里现有一条“华为 银色”）。
 - **`skuDefaultImg` 为空触发 205**：无图片的 SPU 生成草稿会在提交时炸，`generateDrafts` 里前置拦截并提示“请先在 SPU 管理中上传图片”。
-- **Part 12 的 SPU 205 很可能是同根因**：SPU 保存时也传了 number，若按同样的字符串契约修正，`saveSpuInfo/updateSpuInfo` 有望也跑通（待后续验证）。
+- **Part 12 的 SPU 205 已验证不是同根因**：字符串契约修正无效，真正根因是嵌套数组必须非空（双列表非空 + 值列表非空三层契约），详见 Part 12 重写后的 205 破案记录。
 
 ---
 

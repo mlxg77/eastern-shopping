@@ -10,6 +10,35 @@ export interface SpuItem {
   tmId?: number
 }
 
+// ---- 保存/修改 SPU 的请求体契约（实测 + 后端示例对齐） ----
+// ⚠️ 后端约定：spuImageList 与 spuSaleAttrList 必须双双非空，
+// 且每个销售属性必须带非空值列表 —— 缺任何一项都返回 205「服务繁忙」
+export interface SpuImage {
+  imgName: string
+  imgUrl: string
+}
+
+export interface SpuSaleAttrValue {
+  saleAttrValueName: string
+  baseSaleAttrId: number
+}
+
+export interface SpuSaleAttr {
+  baseSaleAttrId: number
+  saleAttrName: string
+  spuSaleAttrValueList: SpuSaleAttrValue[]
+}
+
+export interface SaveSpuPayload {
+  spuName: string
+  description: string
+  category3Id: number
+  tmId: number
+  id?: number // 修改时携带，新增不带
+  spuImageList: SpuImage[]
+  spuSaleAttrList: SpuSaleAttr[]
+}
+
 export interface PageResult<T> {
   records: T[]
   total: number
@@ -25,12 +54,12 @@ export function reqSpuList(page: number, size: number, category3Id: number) {
 }
 
 // 保存（新增）SPU
-export function reqSaveSpu(data: SpuItem) {
+export function reqSaveSpu(data: SaveSpuPayload) {
   return request.post<unknown, ResponseBody<null>>('/admin/product/saveSpuInfo', data)
 }
 
 // 修改 SPU
-export function reqUpdateSpu(data: SpuItem) {
+export function reqUpdateSpu(data: SaveSpuPayload) {
   return request.post<unknown, ResponseBody<null>>('/admin/product/updateSpuInfo', data)
 }
 
@@ -44,4 +73,14 @@ export function reqBrandList() {
   return request.get<unknown, ResponseBody<PageResult<{ id: number; tmName: string }>>>(
     '/admin/product/baseTrademark/1/100'
   )
+}
+
+// ---- 基础销售属性字典（颜色/版本/尺码…） ----
+export interface BaseSaleAttr {
+  id: number
+  name: string
+}
+
+export function reqBaseSaleAttrList() {
+  return request.get<unknown, ResponseBody<BaseSaleAttr[]>>('/admin/product/baseSaleAttrList')
 }
