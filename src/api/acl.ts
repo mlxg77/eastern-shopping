@@ -78,3 +78,51 @@ export function reqDoAssignRole(userId: number, roleIdList: number[]) {
     roleIdList,
   })
 }
+
+// ---- 角色管理 ----
+export function reqRoleList(page: number, limit: number, roleName?: string) {
+  return request.get<unknown, ResponseBody<PageData<RoleItem>>>(
+    `/admin/acl/role/${page}/${limit}`,
+    { params: roleName ? { roleName } : {} },
+  )
+}
+
+export function reqSaveRole(data: { roleName: string; remark: string }) {
+  return request.post<unknown, ResponseBody<null>>('/admin/acl/role/save', data)
+}
+
+export function reqUpdateRole(data: { id: number; roleName: string; remark: string }) {
+  return request.put<unknown, ResponseBody<null>>('/admin/acl/role/update', data)
+}
+
+export function reqDeleteRole(id: number) {
+  return request.delete<unknown, ResponseBody<null>>(`/admin/acl/role/remove/${id}`)
+}
+
+// ---- 权限树（分配权限） ----
+export interface MenuNode {
+  id: number
+  name: string
+  pid: number
+  type: number // 1 = 菜单，2 = 按钮
+  level: number
+  // 该角色当前是否拥有此权限（回显勾选用）
+  select: boolean
+  // 叶子节点是 null（不是空数组），遍历时注意判空
+  children: MenuNode[] | null
+}
+
+export function reqToAssignMenu(roleId: number) {
+  return request.get<unknown, ResponseBody<MenuNode[]>>(
+    `/admin/acl/permission/toAssign/${roleId}`,
+  )
+}
+
+// 分配权限：整体替换式 —— 传当前应拥有的完整节点集合
+// ⚠️ permissionId 必须手动拼成逗号串（Go 切片绑定）；
+//    axios params 传数组会序列化成 permissionId[]=8&permissionId[]=9，后端不认
+export function reqDoAssignPermission(roleId: number, permissionIds: number[]) {
+  return request.post<unknown, ResponseBody<null>>(
+    `/admin/acl/permission/doAssign?roleId=${roleId}&permissionId=${permissionIds.join(',')}`,
+  )
+}

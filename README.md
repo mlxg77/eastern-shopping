@@ -22,7 +22,8 @@
 | 12 | SPU 管理 CRUD（完整表单与 205 契约破案） | 2026-09-16 | ✅ 完成 |
 | 13 | SKU 管理（笛卡尔积生成 + SPU 子资源联动 + 上架/下架） | 2026-09-16 | ✅ 完成 |
 | 14 | 用户管理（ACL 三件套之一：搜索 + CRUD + 分配角色抽屉） | 2026-09-16 | ✅ 完成 |
-| 15 | （待开始） | — | ⬜ |
+| 15 | 角色管理（ACL 三件套之二：权限树分配 + el-tree） | 2026-09-16 | ✅ 完成 |
+| 16 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -710,6 +711,61 @@ ACL 模块 19 个接口从 `GET /swagger/doc.json` **一次查全**（对照 Par
 ## 踩坑记录
 
 本 Part 一次通过，未踩坑。验收时做了端到端闭环实测（建 `_probe_user_` → 分配“测试”角色 → 改昵称 → 删除全 200，roleName 分配后正确变“测试”），数据已清理。任务书预判的两个隐患都没触发：el-checkbox `:value` 写法直接通过（Element Plus 2.14 是新版）；GET query 的 `params` 写法也一次过。文档 `$ref` 带 `model.` 前缀的坑见接口侦察节——这是 swaggo 生成的特点，查 definitions 时要么拼前缀要么全文搜。
+
+---
+
+# Part 15 · 角色管理（ACL 三件套之二）
+
+## 目标
+
+1. 角色列表（roleName 搜索 + 分页）+ 新增/编辑对话框 + 删除二次确认——CRUD 模子第六次复用。
+2. **分配权限抽屉（el-tree 树形控件 + 复选框）**：项目最后一个重量级 Element 组件，踩通 doAssign 的四个怪契约。
+3. ACL 三件套的中间环节——角色层做完，Part 16 的菜单管理 + 动态路由就有基础。
+
+## 接口侦察（临时 probe 角色做实验，测完即删）
+
+### doAssign 实测矩阵（本 Part 最大收获）
+
+| 实验 | 结果 | 解读 |
+|---|---|---|
+| assign 8 → assign 9 | 8 变 false，9 变 true | **整体替换式**：每次调用覆盖全部权限，非累加 |
+| `permissionId=8,9`（逗号） | ✅ 两个都生效 | Go 切片绑定支持逗号分隔 |
+| `permissionId=8&permissionId=9`（重复 key） | ❌ 只取第一个 | axios params 默认序列化就是这种，**不能用来传数组** |
+| 传父节点 7 | 只存 7 本身，子节点不级联 | 保存必须传“勾选+半选”完整集合 |
+| `permissionId=`（空串） | 201 参数错误 | 空集合不能提交，前端要前置拦截 |
+
+### 完整接口表
+
+| 接口 | 方法/路径 | 说明 |
+|---|---|---|
+| 角色列表 | `GET /admin/acl/role/{page}/{limit}?roleName=` | roleName 可选搜索词 |
+| 新增角色 | `POST /admin/acl/role/save` | `{roleName, remark}` |
+| 修改角色 | `PUT /admin/acl/role/update` | `{id, roleName, remark}` |
+| 删除角色 | `DELETE /admin/acl/role/remove/{id}` | — |
+| 权限树回显 | `GET /admin/acl/permission/toAssign/{roleId}` | 63 节点 4 层树，每节点带 `select` |
+| 分配权限 | `POST /admin/acl/permission/doAssign?roleId=&permissionId=` | 逗号分隔批量，整体替换式 |
+
+admin 角色的权限树 63 节点全 true，存储级联一致（父 true 时子也全 true）——回显时把所有 select=true 的 id 直接 set 进去，el-tree 自己算父子级联显示。
+
+## 操作过程
+
+1. `src/api/acl.ts` 追加角色管理四个函数（复用已有的 PageData / RoleItem）+ `MenuNode` 类型 + `reqToAssignMenu` + `reqDoAssignPermission`（手动拼 URL 逗号串，注释说明了 axios params 数组序列化陷阱）。
+2. 新建 `src/views/acl/RoleView.vue`：列表+搜索+对话框+删除（CRUD 模子六次复用）+ 分配权限抽屉（el-tree 五配置 + setCheckedKeys 时序 + getCheckedKeys+getHalfCheckedKeys 合并）。
+3. `src/router/index.ts`：`acl/role` 从占位页换成 `RoleView.vue`。
+
+## 原理与决策
+
+1. **el-tree 五配置（缺一不可）**：`node-key="id"` 必设（勾选状态靠它记录身份）；`:props="{label:'name',children:'children'}"` 字段映射；`show-checkbox` 复选框模式；`default-expand-all` 4 层深必须全展开才看到叶子；`:data` 接树形数据。
+2. **半选父节点必须合并提交**（权限树保存的头号经典坑）：`getCheckedKeys()` 只返回完全勾选的节点，**半选状态的父节点在 `getHalfCheckedKeys()` 里**。漏掉后者保存后父菜单就丢了——下次打开抽屉时父节点变未勾选，虽然子节点还在，但父的权限（如“权限管理”菜单的进入资格）会丢。提交集合 = `checked + halfChecked`，后端整体替换式存储，下次回显级联一致。
+3. **setCheckedKeys 比 default-checked-keys 更可控**：`default-checked-keys` 动态改在某些 Element Plus 版本下不生效；用 `nextTick` 后调 `treeRef.value?.setCheckedKeys(...)` 是稳的。打开抽屉时先 `menuTree.value = []` 再赋新值——data 重建后树的状态自然归零，避免上次残留。
+4. **整体替换式保存**：doAssign 是“先删后插”语义，前端只发“当前应拥有的完整集合”（含勾选+半选），不做 diff。代价是空集合提交报 201（后端不允许清空），UI 要做前置拦截“请至少勾选一个权限节点”。
+5. **手动拼 URL 传逗号参数**：axios params 传数组默认序列化成 `permissionId[]=8&permissionId[]=9`（带方括号），Go 不认。改用 `request.post(`/doAssign?roleId=${rid}&permissionId=${ids.join(',')}`)` 手动拼 URL，直接对齐侦察时实测成功的格式。
+
+## 踩坑记录
+
+本 Part 一次通过，未踩坑。验收时做了端到端闭环（建 `_probe_role_` → doAssign 8,9,11,12 逗号批量 → toAssign 验证四个都 true、父节点 7/1 保持 false 符合预期 → DELETE 清理）。任务书预判的三个隐患全部未触发：setCheckedKeys 时序、半选父节点合并、空集合拦截——代码里直接按设计写了，无需回退。
+
+重点记一笔：**半选父节点丢失**是后台权限树保存的“教科书级经典坑”，本项目用 getCheckedKeys + getHalfCheckedKeys 合并绕开，这个坑的根因是 el-tree 的半选状态和勾选状态存在两个不同集合里——前端必须自己合起来才能表达“完整拥有的节点集合”。这个坑在硅谷甄选原版 Java 教程里也是必踩项，本次用 Go 后端绕开但逻辑一致。
 
 ---
 
