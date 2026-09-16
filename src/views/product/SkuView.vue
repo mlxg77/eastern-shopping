@@ -6,6 +6,7 @@ import { reqSpuList } from '@/api/spu'
 import type { SpuItem } from '@/api/spu'
 import {
   reqSkuList, reqSaveSku, reqDeleteSku,
+  reqOnSale, reqCancelSale,
   reqSpuSaleAttrList, reqSpuImageList,
 } from '@/api/sku'
 import type { SkuItem, SpuSaleAttr, SpuImage, SaveSkuPayload } from '@/api/sku'
@@ -200,6 +201,26 @@ async function onDelete(id: number) {
   loadSkuList()
 }
 
+// ---- 上架 / 下架（低风险可逆操作，直接执行不二次确认） ----
+const saleLoading = ref(false)
+
+async function onToggleSale(row: SkuItem) {
+  if (!row.id) return
+  saleLoading.value = true
+  try {
+    if (row.isSale === 1) {
+      await reqCancelSale(row.id)
+      ElMessage.success('已下架')
+    } else {
+      await reqOnSale(row.id)
+      ElMessage.success('已上架')
+    }
+    loadSkuList()
+  } finally {
+    saleLoading.value = false
+  }
+}
+
 // ---- 图片完整 URL 拼接（复用 Part 9 逻辑） ----
 function toFullUrl(url: string) {
   if (!url) return ''
@@ -276,8 +297,23 @@ onMounted(() => {
         <el-table-column prop="price" label="价格" width="120">
           <template #default="{ row }">¥{{ (row.price / 100).toFixed(2) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
+            <el-tag :type="row.isSale === 1 ? 'success' : 'info'">
+              {{ row.isSale === 1 ? '已上架' : '未上架' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="240">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              :type="row.isSale === 1 ? 'warning' : 'success'"
+              :loading="saleLoading"
+              @click="onToggleSale(row)"
+            >
+              {{ row.isSale === 1 ? '下架' : '上架' }}
+            </el-button>
             <el-popconfirm title="确定删除该 SKU 吗？" @confirm="onDelete(row.id)">
               <template #reference>
                 <el-button size="small" type="danger">删除</el-button>

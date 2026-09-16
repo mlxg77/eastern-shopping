@@ -7,9 +7,12 @@ export interface SkuItem {
   id?: number
   skuName: string
   price: number
-  spuId: number
+  // 后端列表实际键名为 spuID（大写 ID，与 saveSkuInfo 请求体一致）
+  spuID: number
   category3Id: number
   tmId: number
+  // 0 = 未上架，1 = 已上架（onSale/cancelSale 接口切换）
+  isSale: number
   skuSaleAttrValueList: SkuSaleAttrValue[]
   skuImageList: SkuImage[]
 }
@@ -75,6 +78,15 @@ export function reqSaveSku(data: SaveSkuPayload) {
 
 export function reqDeleteSku(id: number) {
   return request.delete<unknown, ResponseBody<null>>(`/admin/product/deleteSku/${id}`)
+}
+
+// 上架 / 下架：后端用 GET（无请求体），传 SKU id 即可
+export function reqOnSale(skuId: number) {
+  return request.get<unknown, ResponseBody<null>>(`/admin/product/onSale/${skuId}`)
+}
+
+export function reqCancelSale(skuId: number) {
+  return request.get<unknown, ResponseBody<null>>(`/admin/product/cancelSale/${skuId}`)
 }
 
 // ---- SPU 子资源（选 SPU 后加载） ----

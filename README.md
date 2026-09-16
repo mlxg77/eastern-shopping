@@ -20,7 +20,7 @@
 | 10 | 平台属性管理（三级联动 + 嵌套 CRUD） | 2026-09-14 | ✅ 完成 |
 | 11 | SPU 列表展示与三级分类公共组件抽取 | 2026-09-15 | ✅ 完成 |
 | 12 | SPU 管理 CRUD（完整表单与 205 契约破案） | 2026-09-16 | ✅ 完成 |
-| 13 | SKU 管理（笛卡尔积生成 + SPU 子资源联动） | 2026-09-15 | ✅ 完成 |
+| 13 | SKU 管理（笛卡尔积生成 + SPU 子资源联动 + 上架/下架） | 2026-09-16 | ✅ 完成 |
 | 14 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
@@ -624,6 +624,7 @@ save/update 路径靠穷举命中，delete 一次命中：
 2. **SPU 子资源展示**：选中 SPU 后并行拉取销售属性（tag 展示）和图片列表（缩略图 + 预览）。
 3. **SKU 列表 + 删除**：分页表格展示该 SPU 下所有 SKU，删除带二次确认和智能回退页。
 4. **添加 SKU**：按销售属性笛卡尔积生成草稿行（预填 skuName / 默认图），填价格后逐条提交。
+5. **上架 / 下架**（09-16 补充）：状态列（el-tag）+ 一键切换按钮，调 `onSale`/`cancelSale` 接口。
 
 ## 接口侦察
 
@@ -637,12 +638,17 @@ save/update 路径靠穷举命中，delete 一次命中：
 | 基础销售属性 | `GET /admin/product/baseSaleAttrList` | `[{id, name}]`（颜色/版本/尺码） |
 | 保存 SKU | `POST /admin/product/saveSkuInfo` | 字符串契约（见下） |
 | 删除 SKU | `DELETE /admin/product/deleteSku/{id}` | 实测可用 |
+| 上架 SKU | `GET /admin/product/onSale/{skuId}` | `isSale` 0 → 1 |
+| 下架 SKU | `GET /admin/product/cancelSale/{skuId}` | `isSale` 1 → 0 |
+
+> 上架/下架补充时已是 swagger 文档时代：两接口从 `GET /swagger/doc.json` 直接查到，不再穷举（文档里下架叫 `cancelSale`，不是 `offSale`）。
 
 ## 操作过程
 
 1. 新建 `src/api/sku.ts`：`SkuItem` / `SaveSkuPayload` / `SpuSaleAttr` / `SpuImage` 类型 + 六个请求函数。
 2. 新建 `src/views/product/SkuView.vue`（350 行，项目最大页面）：三级分类 + SPU 下拉两层联动、`Promise.all` 并行拉销售属性和图片、笛卡尔积生成草稿、逐条提交。
 3. `src/router/index.ts`：sku 路由从占位页换成 `SkuView.vue`。
+4. （09-16 补充）`api/sku.ts` 加 `reqOnSale`/`reqCancelSale`；`SkuView.vue` 表格加状态列（el-tag 已上架/未上架），操作列按 `row.isSale` 切换显示上架/下架按钮。
 
 ## 原理与决策
 
@@ -651,12 +657,15 @@ save/update 路径靠穷举命中，delete 一次命中：
 3. **价格单位是分**：后端存分（999 = ¥9.99），列表展示时 `/100` 格式化。
 4. **`SpuSaleAttr.id` 是 string**：后端以字符串返回雪花 ID（防 JS 大数精度丢失），保存 SKU 时原样透传给 `saleAttrId`。
 5. **草稿结构分层**：页面私有 `SkuDraft`（编辑态）与后端契约 `SaveSkuPayload`（提交态）分离，提交时才映射——避免编辑结构被后端契约绑架。
+6. **用 GET 做状态变更**：上架/下架是 `GET /onSale/{skuId}`、`GET /cancelSale/{skuId}`——按 HTTP 语义本应是 POST/PUT，这是该后端的怪设计（无请求体的动作全用 GET），前端照文档实现即可。实测闭环：onSale 把 `isSale` 从 0 改 1，cancelSale 改回 0。
+7. **低风险操作不二次确认**：删除不可逆所以带 el-popconfirm；上架/下架可逆（再点一次就切回来），直接执行，按钮 loading 防连点，错误提示交给响应拦截器统一弹。
 
 ## 踩坑记录
 
 - **saveSkuInfo 的 205 真相（本 Part 最大收获）**：初探时按任务书 number 类型提交返回 205“服务繁忙”，一度当成后端 bug。实际是**契约格式问题**：Go 后端用 `strconv` 按字符串解析数字字段，JSON number 会被读成空串 → 解析失败 → 205。修复：`price/spuID/category3Id/tmId/weight` 全部 `String()` 转字符串，`spuID` 键名大写 ID，`saleAttrId` 用销售属性 id 而非 `baseSaleAttrId`，`skuImageList` 每项带 `spuImgId`。修复后实测落库成功（库里现有一条“华为 银色”）。
 - **`skuDefaultImg` 为空触发 205**：无图片的 SPU 生成草稿会在提交时炸，`generateDrafts` 里前置拦截并提示“请先在 SPU 管理中上传图片”。
 - **Part 12 的 SPU 205 已验证不是同根因**：字符串契约修正无效，真正根因是嵌套数组必须非空（双列表非空 + 值列表非空三层契约），详见 Part 12 重写后的 205 破案记录。
+- **`SkuItem.spuId` 键名笔误（09-16 补充时顺手修正）**：列表接口实际返回 `spuID`（大写 ID，与 saveSkuInfo 请求体一致），此前类型里写的小写 `spuId`——因无消费方从未暴露。教训：类型定义与后端实际响应对不上时，只要没人读那个字段就不会报错，接触该接口时顺手核对一遍键名。
 
 ---
 
