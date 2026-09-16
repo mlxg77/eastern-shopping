@@ -101,6 +101,7 @@ export function reqDeleteRole(id: number) {
 
 // ---- 权限树（分配权限） ----
 export interface MenuNode {
+  code: string
   id: number
   name: string
   pid: number
@@ -125,4 +126,37 @@ export function reqDoAssignPermission(roleId: number, permissionIds: number[]) {
   return request.post<unknown, ResponseBody<null>>(
     `/admin/acl/permission/doAssign?roleId=${roleId}&permissionId=${permissionIds.join(',')}`,
   )
+}
+
+// ---- 菜单管理 ----
+export interface SaveMenuPayload {
+  name: string
+  code: string
+  level: number
+  pid: number
+  type: number // 1 = 菜单，2 = 按钮
+}
+
+export interface UpdateMenuPayload {
+  id: number
+  name: string
+  code: string
+  level: number
+  pid: number
+}
+
+export function reqMenuTree() {
+  return request.get<unknown, ResponseBody<MenuNode[]>>('/admin/acl/permission')
+}
+
+export function reqSaveMenu(data: SaveMenuPayload) {
+  return request.post<unknown, ResponseBody<null>>('/admin/acl/permission/save', data)
+}
+
+export function reqUpdateMenu(data: UpdateMenuPayload) {
+  return request.put<unknown, ResponseBody<null>>('/admin/acl/permission/update', data)
+}
+
+export function reqDeleteMenu(id: number) {
+  return request.delete<unknown, ResponseBody<null>>(`/admin/acl/permission/remove/${id}`)
 }

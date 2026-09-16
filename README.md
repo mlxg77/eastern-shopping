@@ -23,7 +23,7 @@
 | 13 | SKU 管理（笛卡尔积生成 + SPU 子资源联动 + 上架/下架） | 2026-09-16 | ✅ 完成 |
 | 14 | 用户管理（ACL 三件套之一：搜索 + CRUD + 分配角色抽屉） | 2026-09-16 | ✅ 完成 |
 | 15 | 角色管理（ACL 三件套之二：权限树分配 + el-tree） | 2026-09-16 | ✅ 完成 |
-| 16 | （待开始） | — | ⬜ |
+| 16 | 菜单管理 + 动态路由（ACL 三件套之三：权限体系收官） | 2026-09-16 | ✅ 完成 |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -766,6 +766,82 @@ admin 角色的权限树 63 节点全 true，存储级联一致（父 true 时�
 本 Part 一次通过，未踩坑。验收时做了端到端闭环（建 `_probe_role_` → doAssign 8,9,11,12 逗号批量 → toAssign 验证四个都 true、父节点 7/1 保持 false 符合预期 → DELETE 清理）。任务书预判的三个隐患全部未触发：setCheckedKeys 时序、半选父节点合并、空集合拦截——代码里直接按设计写了，无需回退。
 
 重点记一笔：**半选父节点丢失**是后台权限树保存的“教科书级经典坑”，本项目用 getCheckedKeys + getHalfCheckedKeys 合并绕开，这个坑的根因是 el-tree 的半选状态和勾选状态存在两个不同集合里——前端必须自己合起来才能表达“完整拥有的节点集合”。这个坑在硅谷甄选原版 Java 教程里也是必踩项，本次用 Go 后端绕开但逻辑一致。
+
+---
+
+# Part 16 · 菜单管理 + 动态路由（ACL 三件套之三）
+
+## 目标
+
+1. **菜单管理页面**：树形表格展示菜单层级（4 层：全部数据 → 一级菜单 → 二级菜单 → 按钮），支持新增/修改/删除 + 添加子菜单
+2. **动态菜单**：menu.ts 每项加 `code` 字段，AdminLayout 按登录用户的 `info.routes`（权限码数组）过滤菜单——替代 Part 7 的静态配置
+3. **按钮权限基础**：stores/user 存 `info.buttons`，暴露 `hasButton()` 方法，页面 v-if 判断按钮显示
+4. **占位路由兜底**：订单/客户/优惠等未开发页面统一指向 PlaceholderView
+
+## 接口侦察
+
+### info 接口的两个关键字段（实测）
+
+```json
+routes: ["", "Acl", "User", "Role", "Permission", "Product", "Category", "Attr", "Trademark", "Spu", "Sku", "Order", ...]
+buttons: ["btn.User.add", "btn.User.remove", "btn.User.update", "btn.User.assgin", ...]
+```
+
+- **routes** 是菜单树的 `code` 字段（权限码）——动态菜单过滤依据
+- **buttons** 是按钮节点的 `code` 字段——按钮显示/隐藏依据
+- 空字符串和 `"btn.all"` 是无意义占位，过滤时忽略
+
+### 菜单树结构
+
+```
+id=1, pid=0, name="全部数据", code="", type=1, level=1
+├─ id=7,  pid=1, name="权限管理", code="Acl"
+│  ├─ id=8,  name="用户管理", code="User"
+│  │  ├─ id=11, name="添加用户", code="btn.User.add", type=2, level=4
+│  │  └─ ...
+│  ├─ id=9,  name="角色管理", code="Role"
+│  └─ id=10, name="菜单管理", code="Permission"
+└─ id=22, name="商品管理", code="Product"
+   └─ ...
+```
+
+- `type`：1=菜单（能路由跳转）；2=按钮（权限点）
+- `pid`：父菜单 id；顶级菜单 pid=0
+- `level`：1~4（根=1，一级=2，二级=3，按钮=4）
+
+### 菜单 CRUD 接口（实测全 200 闭环）
+
+| 接口 | 方法/路径 | 说明 |
+|---|---|---|
+| 菜单树 | `GET /admin/acl/permission` | 63 节点 4 层 |
+| 新增菜单 | `POST /admin/acl/permission/save` | `{name, code, level, pid, type}` |
+| 修改菜单 | `PUT /admin/acl/permission/update` | `{id, name, code, level, pid}` |
+| 删除菜单 | `DELETE /admin/acl/permission/remove/{id}` | — |
+
+## 操作过程
+
+1. **api/acl.ts 追加**：`SaveMenuPayload` / `UpdateMenuPayload` 类型 + `reqMenuTree` / `reqSaveMenu` / `reqUpdateMenu` / `reqDeleteMenu` 四个函数；MenuNode 接口补 `code: string` 字段
+2. **menu.ts 加 code 字段**：`MenuLeaf` / `MenuNode` 接口加 `code` 字段；menuConfig 每项加 code 值（"首页" 不加 code，所有登录用户都看）
+3. **stores/user.ts 加权限码**：新增 `userRoutes` / `userButtons` ref；`fetchUserInfo` 里存 `info.data.routes` / `info.data.buttons`；暴露 `hasButton(code)` 方法
+4. **AdminLayout.vue 动态过滤**：新增 `filteredMenu` 计算属性 + `filterNode` 递归函数；模板 `v-for` 数据源从 `menuConfig` 换成 `filteredMenu`
+5. **MenuView.vue 新建**：树形表格（el-table row-key + tree-props）+ 新增/编辑对话框 + 添加子菜单
+6. **router/index.ts**：`acl/menu` 路由换成 MenuView.vue；订单/客户/优惠 5 条占位路由指向 PlaceholderView.vue
+
+## 原理与决策
+
+1. **el-table 树形渲染 vs el-tree**：菜单管理用 el-table（row-key + tree-props），比 el-tree 更适合“增删改”场景——表格列可以展示多个字段（名称、权限码、类型、层级），操作列放按钮；el-tree 更适合“勾选/回显”场景（如角色权限分配）。
+2. **递归 filter 保留结构**：`filterNode` 既要丢弃整枝（code 不在 routes 里），也要丢弃空父菜单（子全被过滤但父 code 在）。用 `computed` 驱动渲染——`menuConfig` 是静态数据，`filteredMenu` 是计算属性，权限变化自动响应。
+3. **权限码体系**：`routes` 控菜单、`buttons` 控按钮、`code` 字段是菜单树的唯一身份标识。前端路由配置带 code，与后端 info.routes 对齐——这是动态路由的映射基础。
+4. **占位路由兜底**：未开发页面统一指向 PlaceholderView（el-empty 显示“功能开发中”），避免点击菜单白屏。后续 Part 替换为真实页面时只需改路由的 component 指向。
+5. **hasButton 方法**：按钮权限的最小实现，封装在 store 里，页面用 `v-if="userStore.hasButton('btn.User.add')"` 控制——避免 `v-if="userButtons.includes(...)"` 散在页面里。
+
+## 踩坑记录
+
+本 Part 踩了三个坑，全部是**类型/配置层面**的（不是业务逻辑坑）：
+
+1. **Pinia 4 类型推断对声明顺序敏感**：`ref` state 必须声明在所有 `function` action 之前，否则 Pinia 4 的 defineStore 推断出的 Store 类型会漏掉后面声明的 state。原写法 `token → userInfo → login() → userRoutes → userButtons` 导致 `userStore.userRoutes` 类型不存在；重排为 `state 块在前、actions 块在后` 修复。
+2. **api/acl.ts 的 MenuNode 缺 code 字段**：Part 15 定义的 MenuNode 只有 id/name/pid/type/level/select/children，Part 16 菜单管理需要 code 字段。读工具返回了缓存版本（有 code），但磁盘文件没有，导致 vue-tsc 报 `Property 'code' does not exist`。用 Bash 直接看磁盘确认后用 node 脚本加字段修复。
+3. **占位路由缺失导致白屏**：menu.ts 配了订单/客户/优惠菜单路径，但 router 里没注册这些路由——点击子菜单跳转到不存在的路径，Vue Router 匹配不到组件渲染空白。加 5 条占位路由指向 PlaceholderView 修复。
 
 ---
 

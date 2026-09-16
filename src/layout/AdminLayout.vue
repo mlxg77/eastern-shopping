@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { menuConfig } from './menu'
+import type { MenuNode } from './menu'
 
 const route = useRoute()
 const router = useRouter()
@@ -11,6 +12,32 @@ const userStore = useUserStore()
 
 // 侧边栏折叠状态
 const collapsed = ref(false)
+
+// 动态菜单：按当前用户的权限码（info.routes）过滤 menuConfig
+// 节点 code 不在 routes 里 → 整枝丢弃；子全过滤则父也丢弃（避免显示空父菜单）
+const filteredMenu = computed<MenuNode[]>(() => {
+  const routes = userStore.userRoutes
+  if (!routes.length) return []
+  return menuConfig
+    .map((node) => filterNode(node, routes))
+    .filter((n): n is MenuNode => n !== null)
+})
+
+function filterNode(node: MenuNode, routes: string[]): MenuNode | null {
+  // 有 code 且不在权限码里 → 整枝丢弃
+  if (node.code && !routes.includes(node.code)) return null
+  // 有 children 时递归过滤子菜单
+  if (node.children) {
+    const children = node.children
+      .map((c) => filterNode(c as MenuNode, routes))
+      .filter((n): n is MenuNode => n !== null)
+    // 父 code 在但子全被过滤 → 父也丢弃（避免显示空父菜单）
+    if (children.length === 0 && node.children.length > 0) return null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { ...node, children: children as any }
+  }
+  return node
+}
 
 async function onLogout() {
   await userStore.logout()
@@ -34,7 +61,7 @@ async function onLogout() {
         text-color="#a6adb4"
         active-text-color="#ffffff"
       >
-        <template v-for="item in menuConfig" :key="item.title">
+        <template v-for="item in filteredMenu" :key="item.title">
           <!-- 有子菜单：可展开分组 -->
           <el-sub-menu v-if="item.children" :index="item.title">
             <template #title>
