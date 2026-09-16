@@ -21,7 +21,8 @@
 | 11 | SPU 列表展示与三级分类公共组件抽取 | 2026-09-15 | ✅ 完成 |
 | 12 | SPU 管理 CRUD（完整表单与 205 契约破案） | 2026-09-16 | ✅ 完成 |
 | 13 | SKU 管理（笛卡尔积生成 + SPU 子资源联动 + 上架/下架） | 2026-09-16 | ✅ 完成 |
-| 14 | （待开始） | — | ⬜ |
+| 14 | 用户管理（ACL 三件套之一：搜索 + CRUD + 分配角色抽屉） | 2026-09-16 | ✅ 完成 |
+| 15 | （待开始） | — | ⬜ |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -666,6 +667,49 @@ save/update 路径靠穷举命中，delete 一次命中：
 - **`skuDefaultImg` 为空触发 205**：无图片的 SPU 生成草稿会在提交时炸，`generateDrafts` 里前置拦截并提示“请先在 SPU 管理中上传图片”。
 - **Part 12 的 SPU 205 已验证不是同根因**：字符串契约修正无效，真正根因是嵌套数组必须非空（双列表非空 + 值列表非空三层契约），详见 Part 12 重写后的 205 破案记录。
 - **`SkuItem.spuId` 键名笔误（09-16 补充时顺手修正）**：列表接口实际返回 `spuID`（大写 ID，与 saveSkuInfo 请求体一致），此前类型里写的小写 `spuId`——因无消费方从未暴露。教训：类型定义与后端实际响应对不上时，只要没人读那个字段就不会报错，接触该接口时顺手核对一遍键名。
+
+---
+
+# Part 14 · 用户管理（ACL 三件套之一）
+
+## 目标
+
+1. CRUD 模子第五次复用：用户列表（**username 模糊搜索 + 分页**）+ 新增/编辑对话框 + 删除二次确认。
+2. 新交互：**分配角色抽屉**（el-drawer + el-checkbox-group）——调回显接口勾选已有角色，保存时全量提交。
+3. ACL 三件套开工（用户/角色/菜单），本 Part 是其中最基础的用户管理。
+
+## 接口侦察（swagger 文档时代的第二次实战）
+
+ACL 模块 19 个接口从 `GET /swagger/doc.json` **一次查全**（对照 Part 11~13 时穷举探针的惨痛，文档化侦察的效率是碾压级的）。请求体定义有窝小坑：`$ref` 引用 `model.ParamRoleSave`，但 definitions 的 key 带前缀 `model.ParamRoleSave`，直接按 ref 名查会 NOT FOUND，需要拼前缀或全局搜。
+
+| 接口 | 方法/路径 | 说明 |
+|---|---|---|
+| 用户列表 | `GET /admin/acl/user/{page}/{limit}?username=` | username 可选搜索词 |
+| 新增用户 | `POST /admin/acl/user/save` | `{username, name, password}` 三字段全必填 |
+| 修改用户 | `PUT /admin/acl/user/update` | `{id, username, name}`——**契约里没有 password** |
+| 删除用户 | `DELETE /admin/acl/user/remove/{id}` | — |
+| 角色回显 | `GET /admin/acl/user/toAssign/{adminId}` | `data: {assignRoles(已选), allRolesList(全量)}` |
+| 分配角色 | `POST /admin/acl/user/doAssignRole` | `{userId, roleIdList}` 全量覆盖式 |
+
+实测数据要点：用户记录含 `id / username / name / phone / roleName / createTime`（password 是哈希不展示）；列表的 `roleName` 是后端拼好的字符串，分配角色后**必须刷新列表**才能看到变化。
+
+## 操作过程
+
+1. 新建 `src/api/acl.ts`：UserItem / RoleItem / ToAssignData 类型 + 六个请求函数。首次用到 **GET query 参数**的 axios 写法：`request.get(url, { params: { username } })`（对照品牌管理的路径参数风格，同一后端两种参数风格并存）。
+2. 新建 `src/views/acl/UserView.vue`：搜索区（回车/按钮查询、clearable 清空重置）→ 表格 → 分页 → 对话框（isEdit 区分新增/编辑）→ 分配角色抽屉。
+3. `src/router/index.ts`：`acl/user` 从占位页换成 `UserView.vue`。
+
+## 原理与决策
+
+1. **el-drawer vs el-dialog 的场景分工**：对话框适合“填表单”（阻断式、居中、有确定语义）；抽屉适合“查看 + 勾选”类轻操作（侧滑不打断列表上下文，关闭即走）。分配角色是典型抽屉场景。
+2. **el-checkbox-group 数组绑定**：`v-model` 绑 `selectedRoleIds: number[]`，每个 el-checkbox 的 `:value="role.id"`——勾谁就把谁的 id push 进数组，提交时整个数组就是答案。对照 el-radio 的单选语义，这是多选的标准范式。注意 Element Plus 2.6+ 用 `:value`，旧版叫 `:label`（本项目 2.14 用 `:value` 一次过）。
+3. **覆盖式提交**：doAssignRole 不做 diff，前端只发“当前全部选中项”（空数组 = 清空角色）。增删全靠后端自己对比新旧集合——前端状态管理大幅简化，代价是提交体稍大（可忽略）。
+4. **编辑表单按后端契约裁剪字段**：update 契约没有 password，编辑对话框就**不显示密码框**（v-if="!isEdit"）——不做“改密码”功能，宁可少做也不造后端不支持的假象。
+5. **搜索后回第一页**：`onSearch` 里 `page.value = 1`。否则停在第 3 页时搜索，可能落在不存在的页码上看到空列表。
+
+## 踩坑记录
+
+本 Part 一次通过，未踩坑。验收时做了端到端闭环实测（建 `_probe_user_` → 分配“测试”角色 → 改昵称 → 删除全 200，roleName 分配后正确变“测试”），数据已清理。任务书预判的两个隐患都没触发：el-checkbox `:value` 写法直接通过（Element Plus 2.14 是新版）；GET query 的 `params` 写法也一次过。文档 `$ref` 带 `model.` 前缀的坑见接口侦察节——这是 swaggo 生成的特点，查 definitions 时要么拼前缀要么全文搜。
 
 ---
 

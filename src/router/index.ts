@@ -19,7 +19,7 @@ const router = createRouter({
         { path: 'product/attr', name: 'attr', component: () => import('../views/product/AttrView.vue'), meta: { title: '平台属性' } },
         { path: 'product/spu', name: 'spu', component: () => import('../views/product/SpuView.vue'), meta: { title: 'SPU 管理' } },
         { path: 'product/sku', name: 'sku', component: () => import('../views/product/SkuView.vue'), meta: { title: 'SKU 管理' } },
-        { path: 'acl/user', name: 'acl-user', component: () => import('../views/PlaceholderView.vue'), meta: { title: '用户管理' } },
+        { path: 'acl/user', name: 'acl-user', component: () => import('../views/acl/UserView.vue'), meta: { title: '用户管理' } },
         { path: 'acl/role', name: 'acl-role', component: () => import('../views/PlaceholderView.vue'), meta: { title: '角色管理' } },
         { path: 'acl/permission', name: 'acl-permission', component: () => import('../views/PlaceholderView.vue'), meta: { title: '菜单管理' } },
       ],
