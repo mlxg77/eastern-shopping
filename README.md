@@ -31,6 +31,62 @@
 
 ---
 
+# 里程碑 1.0 · 一期功能总结
+
+> **开发周期**：2026-09-13 ~ 2026-09-16（4 天）
+> **技术栈**：Vue 3.5 + TypeScript + Vite + Vue Router + Pinia + Element Plus 2.14 + pnpm
+> **后端对接**：47 个 RESTful 接口全部覆盖，swagger spec 驱动开发
+
+## 功能模块
+
+| 模块 | 页面 | 核心功能 |
+|---|---|---|
+| 登录认证 | LoginView | 账号密码登录、Token 自动注入、路由守卫拦截、F5 刷新补拉用户信息 |
+| 后台布局 | AdminLayout | 侧边菜单 + 顶栏 + 内容区，动态菜单按权限码过滤，侧栏折叠 |
+| 品牌管理 | TrademarkView | CRUD + LOGO 图片上传（el-upload 自定义上传） |
+| 平台属性 | AttrView | 三级分类联动 + 属性值嵌套 CRUD，编辑/查看模式切换 |
+| SPU 管理 | SpuView | 三级分类选择 + SPU 列表 + 完整表单（图片上传 + 销售属性） |
+| SKU 管理 | SkuView | 笛卡尔积规格生成 + SPU 子资源联动 + 上架/下架 |
+| 用户管理 | UserView | 搜索 + CRUD + 分配角色抽屉（el-drawer + el-checkbox-group） |
+| 角色管理 | RoleView | CRUD + 权限树分配（el-tree 五配置 + 半选父节点合并） |
+| 菜单管理 | MenuView | 树形表格 CRUD（el-table row-key + tree-props）+ 添加子菜单 |
+| 动态路由 | AdminLayout | 按 info.routes 权限码递归过滤菜单 + 按钮权限基础（hasButton） |
+
+## 关键技术决策
+
+| 决策点 | 方案 | 理由 |
+|---|---|---|
+| HTTP 封装 | axios 实例 + 拦截器 | 统一 Token 注入、错误提示、响应体拆包 |
+| 状态管理 | Pinia setup 风格 | 与 Vue 3 Composition API 一致，类型推断友好 |
+| 登录态存储 | localStorage + 拦截器读取 | 避免 Pinia 未激活时访问 store 报错 |
+| 菜单方案 | 静态配置 + computed 过滤 | 改动最小，符合动态路由常见教学写法 |
+| 权限树保存 | getCheckedKeys + getHalfCheckedKeys 合并 | 绕开 el-tree 半选父节点丢失经典坑 |
+| 菜单管理表格 | el-table 树形渲染 | 比 el-tree 更适合增删改场景 |
+
+## 后端接口覆盖
+
+| 模块 | 路径前缀 | 接口数 | 状态 |
+|---|---|---|---|
+| 登录/登出/用户信息 | `/admin/acl/index` | 3 | ✅ |
+| 用户管理 | `/admin/acl/user` | 6 | ✅ |
+| 角色管理 | `/admin/acl/role` | 4 | ✅ |
+| 菜单/权限 | `/admin/acl/permission` | 6 | ✅ |
+| 品牌管理 | `/admin/product/baseTrademark` | 3 | ✅ |
+| 分类/属性 | `/admin/product` (attr/category) | 8 | ✅ |
+| SPU 管理 | `/admin/product` (spu) | 4 | ✅ |
+| SKU 管理 | `/admin/product` (sku) | 6 | ✅ |
+| 文件上传 | `/admin/product/fileUpload` | 1 | ✅ |
+| **合计** | — | **47** | **全部对接** |
+
+## 工程规范
+
+- **lint**：oxlint + eslint（0 errors / 0 warnings）
+- **type-check**：vue-tsc --build（0 errors）
+- **build**：Vite 构建（~850ms）
+- **commit**：每完成一个 Part 提交一次，共 16 次 commit 全部推送远程 main
+
+---
+
 # Part 1 · 项目初始化
 
 ## 环境要求
