@@ -25,6 +25,7 @@
 | 15 | 角色管理（ACL 三件套之二：权限树分配 + el-tree） | 2026-09-16 | ✅ 完成 |
 | 16 | 菜单管理 + 动态路由（ACL 三件套之三：权限体系收官） | 2026-09-16 | ✅ 完成 |
 | 17 | API 文档对照审查与契约修正（46 接口全量体检） | 2026-09-16 | ✅ 完成 |
+| 18 | 容器化部署（Docker 多阶段构建 + Nginx 同源反代） | 2026-09-19 | ✅ 完成 |
 | 附录 | Vue 概念补充（持续累积，始终置于文末） | 2026-09-13 | 🔄 持续更新 |
 | └ A.10 | 具名插槽与作用域插槽（源于菜单与表格实践） | 2026-09-13 | ✅ 完成 |
 | └ A.11 | 动态组件 `<component :is>`（源于 layout 菜单实践） | 2026-09-13 | ✅ 完成 |
@@ -950,6 +951,56 @@ id=1, pid=0, name="全部数据", code="", type=1, level=1
 2. **同一后端双路由并存**：Part 11 穷举命中的 `/spu/list` 与 API.md 的 `/{page}/{limit}` 同时活着且返回一致——历史版本路由未下线。对接时优先文档规范路径，但排查问题时要想到“前端调的路由 ≠ 文档写的路由”的可能。
 3. **连 404 都是 JSON**：未知路径也返回 HTTP 200 + `code=209` 的 JSON body（gin 框架统一响应中间件接管了 404）。这意味着前端 axios 的 error 分支（HTTP 层错误）几乎永远不会因业务路径错误触发，全部走 `body.code` 分支——错误处理只需聚焦一处。
 4. **PowerShell 5.1 的 Invoke-WebRequest 解析陷阱**：`Invoke-RestMethod` 解析正常 JSON 时偶发字段读出为空（getSkuInfo 首次测显示 code 为空），用 `Invoke-WebRequest` 看原始字符串才确认响应正常。验证接口契约时看**原始响应体**比看解析后的对象更可靠。
+
+---
+
+# Part 18 · 容器化部署（Docker 多阶段构建 + Nginx 同源反代）
+
+> 产物交给 Nginx 容器托管，API 与图片同源反代——只开 80 一个端口，CORS 配置从此退场。
+
+## 目标
+
+1. `pnpm build` 产物由 Nginx 容器托管；`/admin/`（API）与 `/static/`（上传图片）反代到后端容器，浏览器侧全程同源
+2. 多阶段 Dockerfile：Node 里构建、Nginx 里运行——服务器不需要任何 Node 环境
+3. Nginx 访问/错误日志挂载到宿主机；容器时区对齐服务器
+
+## 操作过程
+
+1. 新增 `.env.production`：`VITE_API_BASE_URL=`（保留等号 + 空值，写法原因见踩坑 1）
+2. 编写 `nginx.conf`：history 模式 `try_files` 回退；`location /admin/` 与 `location /static/` 反代 `backend:8000`（服务名 = compose 服务名，同网络自动解析）；`client_max_body_size 20m`；gzip；`access_log` 落 `/var/log/nginx/host/`
+3. 编写 `Dockerfile`：`node:22-alpine` 阶段装 `pnpm@10`（npmmirror 加速）→ `pnpm install --frozen-lockfile` → `pnpm build`；`nginx:alpine` 阶段只拷 `dist/` 与 `nginx.conf`
+4. 编写 `.dockerignore`：`node_modules`、`dist` 等不进构建上下文
+5. 本地 `pnpm build` 验证：type-check 全过；`Select-String` 直查产物——无 `localhost:8000` 残留、axios 实例为 `baseURL:""`（空串即相对路径，构建期已内联）
+6. 交付 `docker-compose.yml` 的 nginx 服务：`"80:80"` 端口映射、`deploy/logs/nginx` 挂载、`/etc/localtime` 只读挂载
+
+## 原理与决策
+
+### 为什么置空，而不是填服务器地址
+
+| 方案 | API 地址 | 代价 |
+|---|---|---|
+| 填 `http://IP:8000` | 跨域直连后端 | 改后端 CORS 放行 + 8000 对公网开放 |
+| **置空（选中）** | 相对路径同源 | 无——Nginx 80 端口全接管 |
+
+置空后的链路闭环：API 请求 = 空 baseURL + `/admin/...` → 落在当前源 → Nginx 分流到后端；图片 = `toFullUrl` 剥掉契约里的 `/api` 前缀再拼空串 → `/static/...` → 同样分流。Part 9 为直连 8000 写的「去 `/api`」修复，在置空方案下正好一步到位——当时留下的 `cleanPath` 就是今天的同源路径。
+
+### Vite 环境变量是构建期常量
+
+`pnpm dev` 读 `.env.development`、`pnpm build` 读 `.env.production`；`import.meta.env.*` 在构建时被替换为字面量（Part 5 记过「env 改动必须重启 dev 服务器」，就是因为它只在启动/构建时读一次）。所以生产构建把空串直接内联进产物 JS——构建一次，产物丢到哪儿都能用，不依赖运行时注入。
+
+### history 模式必须配 try_files
+
+`createWebHistory` 下直访/刷新 `/product/sku` 这类深链接时，浏览器向服务器要的是「/product/sku 这个文件」——磁盘上没有就 404。`try_files $uri $uri/ /index.html` 把找不到的路径交回 `index.html`，由 Vue Router 接管分发。症状迷惑：首页正常、刷新就炸——凡 history 部署必配。
+
+### 多阶段构建：构建环境与运行环境分离
+
+最终镜像 = `nginx:alpine` + dist 静态文件 + 站点配置（约 50MB 量级）；Node、源码、node_modules 全部止步于构建阶段。收益：镜像小、无 Node 运行时（攻击面小）、服务器零 Node 环境；层缓存策略（先 COPY 依赖清单装依赖、再 COPY 源码）让「只改业务代码」的重建跳过重装依赖。
+
+## 踩坑记录
+
+1. **置空写成了整行删除**：`.env` 里 `VITE_API_BASE_URL=`（等号 + 空）得到**空字符串**，整行不写得到 **undefined**。请求端两者等价（axios 都走相对路径），但 `toFullUrl` 的模板字符串里 `${undefined}` 会拼出字面量 `undefined/static/...`——图片 URL 直接报废。空值写法必须保留等号。
+2. **Nginx 默认 1m 请求体上限**：LOGO、SPU 图片稍大就 413，且报错发生在代理层、后端日志一片安静，容易误判。`client_max_body_size 20m` 解决。
+3. **Nginx 容器日志目录权限**：日志落文件要把宿主机目录挂进容器，但 nginx worker 以非 root 用户运行——挂载目录属 `root:root` 时写不进去。部署时预建目录并放开写权限（`chmod 777`）。
 
 ---
 

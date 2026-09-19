@@ -1,0 +1,7 @@
+# 本地依赖与产物不进镜像（镜像内重新安装、重新构建）
+node_modules
+dist
+.git
+.vscode
+*.log
+logs
